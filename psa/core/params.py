@@ -299,16 +299,16 @@ class Parameters:
             except ExpressionError as exc:
                 issues.append(Issue(ERROR, "binding", str(exc), [comp_id]))
                 continue
-            current = getattr(obj, field_name)
-            if isinstance(current, bool):
-                setattr(obj, field_name, bool(value))
-            elif isinstance(current, int) and not isinstance(current, bool):
-                setattr(obj, field_name, int(round(float(value.real
-                                                         if isinstance(value, complex)
-                                                         else value))))
-            elif isinstance(value, complex) and value.imag == 0:
-                setattr(obj, field_name, float(value.real))
-            else:
-                setattr(obj, field_name, value if isinstance(value, complex)
-                        else float(value))
+            setattr(obj, field_name, coerce_like(getattr(obj, field_name), value))
         return issues
+
+
+def coerce_like(current: Any, value: Any) -> Any:
+    """``value`` converted to the type of a field whose value is ``current``."""
+    if isinstance(current, bool):
+        return bool(value)
+    if isinstance(current, int):
+        return int(round(float(value.real if isinstance(value, complex) else value)))
+    if isinstance(value, complex) and value.imag == 0:
+        return float(value.real)
+    return value if isinstance(value, complex) else float(value)

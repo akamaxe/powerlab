@@ -18,6 +18,9 @@ EXAMPLE_PROJECT = Path(__file__).resolve().parents[2] / "examples" / "s1_a80.psn
 def create_app(argv: list[str] | None = None) -> QApplication:
     """Build the QApplication. Qt 6 scales for High-DPI displays by itself."""
     app = QApplication(argv if argv is not None else sys.argv)
+    # Fusion honours the style sheet on every platform; the native Windows 11
+    # style drops check-box indicators once a global sheet is set.
+    app.setStyle("Fusion")
     app.setApplicationName("PowerLab")
     app.setOrganizationName("PowerLab")
     app.setStyleSheet(st.STYLESHEET)

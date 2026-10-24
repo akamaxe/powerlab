@@ -176,6 +176,9 @@ class SchematicScene(QGraphicsScene):
     def notify_moved(self, item: ComponentItem) -> None:
         for wire in self._wires_by_owner.get(item.comp_id, ()):
             wire.refresh()
+        for badge in self._overlay:
+            if badge.target == item.comp_id:
+                self._place_badge(badge, item)
         # A bus move also drags the attach points of everything tapping it.
         if isinstance(item, BusItem):
             for wire in list(self._wires.values()):
@@ -451,48 +454,41 @@ class SchematicScene(QGraphicsScene):
             self.removeItem(badge)
         self._overlay.clear()
 
-    def show_overlay(self, load_flow, pu_model, mode: str = "kv_pu") -> None:
-        """Annotate each bus with its voltage and each branch with its flow."""
-        self.clear_overlay()
-        if load_flow is None:
-            return
+    def show_annotations(self, annotations) -> None:
+        """Pin each :class:`~psa.core.results.Annotation` next to its element.
 
-        # Bus voltages sit above the bus name, branch flows below the branch
-        # detail line. Each kind of text keeps its own lane, so a dense diagram
-        # stays readable.
-        for bus_id, u in load_flow.u_pu.items():
-            item = self._items.get(bus_id)
+        Bus badges sit above the bus, branch badges below the branch's own
+        label lane, element badges to the right of the symbol, so each kind of
+        text keeps its own lane on a dense diagram. Badges follow their element
+        when it moves.
+        """
+        self.clear_overlay()
+        colours = {"flow": st.RESULT_FLOW, "warn": st.RESULT_WARN}
+        for ann in annotations:
+            item = self._items.get(ann.target)
             if item is None:
                 continue
-            mag, ang = load_flow.u_polar(bus_id)
-            lines = [f"{load_flow.u_kv[bus_id]:.4f} kV"]
-            if mode != "kv":
-                lines.append(f"{mag:.4f} pu < {ang:.3f}°")
-            badge = OverlayBadge(lines, QPointF(0, 0))
-            w, h = badge.size()
-            anchor = item.scenePos()
+            badge = OverlayBadge(list(ann.lines), QPointF(0, 0),
+                                 colours.get(ann.colour))
+            badge.target = ann.target
+            badge.slot = ann.slot
+            self.addItem(badge)
+            self._overlay.append(badge)
+            self._place_badge(badge, item)
+
+    def _place_badge(self, badge: OverlayBadge, item: ComponentItem) -> None:
+        w, h = badge.size()
+        anchor = item.scenePos()
+        if badge.slot == "bus":
             half = getattr(item, "length", 0.0) / 2.0
             badge.setPos(anchor.x() - w / 2.0, anchor.y() - half - 26 - h)
-            self.addItem(badge)
-            self._overlay.append(badge)
-
-        for comp_id, flow in load_flow.branch.items():
-            item = self._items.get(comp_id)
-            if item is None:
-                continue
-            i_mag = abs(flow.i_from_pu)
-            s = flow.s_from_pu * load_flow.s_base_mva
-            badge = OverlayBadge(
-                [f"{i_mag:.4f} pu", f"{s.real:+.4f}{s.imag:+.4f}j MVA"],
-                QPointF(0, 0), st.RESULT_FLOW)
-            w, _ = badge.size()
-            anchor = item.scenePos()
-            # Below the name AND the detail line, both of which live in
-            # the branch's own label lane.
+        elif badge.slot == "branch":
+            # Below the name AND the detail line, both of which live in the
+            # branch's own label lane.
             lane = getattr(item, "LABEL_Y", 20.0) + 30.0
             badge.setPos(anchor.x() - w / 2.0, anchor.y() + lane)
-            self.addItem(badge)
-            self._overlay.append(badge)
+        else:
+            badge.setPos(anchor.x() + 24.0, anchor.y() - h / 2.0)
 
 
 def _apply_defaults(obj) -> None:

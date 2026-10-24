@@ -658,6 +658,8 @@ class OverlayBadge(QGraphicsItem):
     def __init__(self, lines: list[str], anchor: QPointF, colour=None):
         super().__init__()
         self.lines = lines
+        self.target = ""            # id of the element it annotates
+        self.slot = "bus"           # bus | branch | element
         self.colour = colour or st.RESULT_TEXT
         self.setZValue(st.Z_OVERLAY)
         self.setPos(anchor)

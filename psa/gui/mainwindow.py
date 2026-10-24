@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import traceback
 from pathlib import Path
 
@@ -17,19 +18,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.analysis import solve_voltages
+from ..core.cases import Case, unique_case_id
 from ..core.errors import PsaError
 from ..core.examples import build_s1, s1_parameter_bindings
 from ..core.params import Parameters
-from ..core.perunit import to_per_unit
 from ..core.results import Result
 from ..core.serialize import Project
-from ..core.study import STUDY_REGISTRY, studies_by_group
+from ..core.study import STUDY_REGISTRY, default_cases, run_case, studies_by_group
 from . import style as st
-from .commands import SetNetworkSettings, SetStudyOptions, delete_objects
-from .dialogs import BaseSettingsDialog, StudyOptionsDialog
+from .commands import SetCases, SetNetworkSettings, delete_objects
+from .dialogs import BaseSettingsDialog, CaseDialog
 from .document import NetworkDocument, blank_document
-from .panels import PaletteList, PropertyEditor, ResultsPanel, VariablesPanel
+from .panels import (
+    CasesPanel,
+    PaletteList,
+    PropertyEditor,
+    ResultsPanel,
+    VariablesPanel,
+)
 from .scene import SchematicScene, SchematicView
 
 FILE_FILTER = "PowerLab project (*.psn);;All files (*)"
@@ -50,6 +56,7 @@ class MainWindow(QMainWindow):
     def __init__(self, document: NetworkDocument | None = None):
         super().__init__()
         self.document = document or blank_document()
+        self._annotated: Result | None = None
         self.setWindowTitle("PowerLab")
         self.resize(1500, 950)
 
@@ -77,6 +84,13 @@ class MainWindow(QMainWindow):
         self.document.dirtyChanged.connect(self._update_title)
         self.document.resultsInvalidated.connect(self._on_results_stale)
         self.document.structureChanged.connect(self._update_actions)
+        self.results.resultActivated.connect(self._on_result_activated)
+        self.cases_panel.newRequested.connect(self.new_case)
+        self.cases_panel.editRequested.connect(self.edit_case)
+        self.cases_panel.duplicateRequested.connect(self.duplicate_case)
+        self.cases_panel.deleteRequested.connect(self.delete_case)
+        self.cases_panel.runRequested.connect(self.run_cases_by_id)
+        self.cases_panel.runAllRequested.connect(self.run_all_studies)
 
         self._apply_default_docks()
         self._restore_window_state()
@@ -111,6 +125,10 @@ class MainWindow(QMainWindow):
         self.properties = PropertyEditor(self.document)
         self._dock("Properties", self.properties, Qt.DockWidgetArea.RightDockWidgetArea,
                    "dock_properties")
+
+        self.cases_panel = CasesPanel(self.document)
+        self._dock("Study cases", self.cases_panel, Qt.DockWidgetArea.RightDockWidgetArea,
+                   "dock_cases")
 
         self.results = ResultsPanel(self.document)
         dock = self._dock("Results", self.results, Qt.DockWidgetArea.BottomDockWidgetArea,
@@ -181,7 +199,9 @@ class MainWindow(QMainWindow):
         self.act_rotate = self._act("Rotate 90 deg", self.rotate_selection, "Ctrl+Alt+R")
         self.act_orient = self._act("Flip bus orientation", self.flip_bus, "Ctrl+Alt+O")
 
-        self.act_run_all = self._act("&Run all studies", self.run_all_studies, "F5")
+        self.act_run_all = self._act(
+            "&Run all cases", self.run_all_studies, "F5",
+            tip="Run every study case (every study, if the project has none)")
         self.study_actions = {}
         for key, study in STUDY_REGISTRY.items():
             self.study_actions[key] = self._act(
@@ -224,7 +244,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_overlay)
         m.addSeparator()
         for dock in (self.dock_library, self.dock_variables,
-                     self.dock_properties, self.dock_results):
+                     self.dock_properties, self.dock_cases, self.dock_results):
             m.addAction(dock.toggleViewAction())
 
         m = bar.addMenu("&Network")
@@ -281,6 +301,8 @@ class MainWindow(QMainWindow):
         self.properties.bind(None)
         self.variables.document = doc
         self.results.document = doc
+        self.cases_panel.set_document(doc)
+        self._annotated = None
         self.banner.setVisible(False)
 
         doc.componentChanged.connect(self.properties._on_changed)
@@ -577,47 +599,93 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def run_study(self, key: str) -> None:
+        """Calculate menu: edit (or create) the study's own case, then run it."""
         study = STUDY_REGISTRY[key]
-        defaults = dict(self.document.project.studies.get(key, {}))
+        case = self.document.case(key) or Case(id=key, study=key)
         if study.option_fields:
-            defaults = self._fill_defaults(key, defaults)
-            dialog = StudyOptionsDialog(self.document, study, defaults, self)
-            if dialog.exec() != StudyOptionsDialog.DialogCode.Accepted:
+            edited = self._edit_case_dialog(study, case)
+            if edited is None:
                 return
-            options = dialog.options()
-            remembered = {k: v for k, v in options.items()
-                          if k != "include_at_ports"}
-            if remembered != self.document.project.studies.get(key):
-                # Through the undo stack so the project is marked modified.
-                self.document.undo.push(
-                    SetStudyOptions(self.document, key, remembered))
-        else:
-            options = defaults
-        self._run([key], options)
+            self._store_case(edited)
+            case = edited
+        self._run_cases([case])
 
     def run_all_studies(self) -> None:
-        self._run(list(STUDY_REGISTRY), None)
+        """F5: every case of the project, or every study when it has none."""
+        self._run_cases(list(self.document.project.cases) or default_cases())
 
-    def _fill_defaults(self, key: str, defaults: dict) -> dict:
-        net = self.document.network
-        if key == "s1a":
-            defaults.setdefault("bus_i", net.base_ref_bus)
-            defaults.setdefault("bus_j", self._far_bus(net.base_ref_bus))
-        elif key == "s1b":
-            defaults.setdefault("bus", net.base_ref_bus)
-            defaults.setdefault("far_bus", self._far_bus(net.base_ref_bus))
-        elif key == "s1c":
-            defaults.setdefault("bus", self._far_bus(net.base_ref_bus))
-        return defaults
+    def run_cases_by_id(self, case_ids: list[str]) -> None:
+        cases = [c for c in (self.document.case(i) for i in case_ids) if c]
+        if cases:
+            self._run_cases(cases)
 
-    def _far_bus(self, from_bus: str) -> str:
-        from ..core.study import _far_bus
-        try:
-            return _far_bus(self.document.network, from_bus)
-        except Exception:  # noqa: BLE001
-            return ""
+    def _run(self, keys: list[str], options: dict | None = None) -> None:
+        """Run studies by key, with ``options`` or each one's saved case options."""
+        cases = []
+        for key in keys:
+            saved = self.document.case(key)
+            opts = dict(options) if options is not None else \
+                dict(saved.options if saved else {})
+            cases.append(Case(id=key, study=key, options=opts))
+        self._run_cases(cases)
 
-    def _run(self, keys: list[str], options: dict | None) -> None:
+    # -- case editing --------------------------------------------------- #
+
+    def _edit_case_dialog(self, study, case: Case) -> Case | None:
+        dialog = CaseDialog(self.document, study, case, self)
+        if dialog.exec() != CaseDialog.DialogCode.Accepted:
+            return None
+        return dialog.case()
+
+    def _store_case(self, case: Case) -> None:
+        """Insert or replace a case through the undo stack (marks the project modified)."""
+        cases = list(self.document.project.cases)
+        for i, existing in enumerate(cases):
+            if existing.id == case.id:
+                if existing == case:
+                    return
+                cases[i] = case
+                break
+        else:
+            cases.append(case)
+        self.document.undo.push(SetCases(self.document, cases, f"Save case {case.id}"))
+
+    def new_case(self, study_key: str) -> None:
+        study = STUDY_REGISTRY[study_key]
+        case = Case(id=unique_case_id(self.document.project.cases, study_key),
+                    study=study_key)
+        edited = self._edit_case_dialog(study, case)
+        if edited is not None:
+            self._store_case(edited)
+
+    def edit_case(self, case_id: str) -> None:
+        case = self.document.case(case_id)
+        study = STUDY_REGISTRY.get(case.study) if case else None
+        if study is None:
+            QMessageBox.warning(self, "Study case",
+                                f"Case '{case_id}' runs an unknown study.")
+            return
+        edited = self._edit_case_dialog(study, case)
+        if edited is not None:
+            self._store_case(edited)
+
+    def duplicate_case(self, case_id: str) -> None:
+        cases = list(self.document.project.cases)
+        index = next(i for i, c in enumerate(cases) if c.id == case_id)
+        twin = copy.deepcopy(cases[index])
+        twin.id = unique_case_id(cases, case_id)
+        if twin.title:
+            twin.title += " (copy)"
+        cases.insert(index + 1, twin)
+        self.document.undo.push(SetCases(self.document, cases, f"Duplicate case {case_id}"))
+
+    def delete_case(self, case_id: str) -> None:
+        cases = [c for c in self.document.project.cases if c.id != case_id]
+        self.document.undo.push(SetCases(self.document, cases, f"Delete case {case_id}"))
+
+    # -- running -------------------------------------------------------- #
+
+    def _run_cases(self, cases: list[Case]) -> None:
         net = self.document.network
         issues = net.validate()
         errors = [i for i in issues if i.is_error]
@@ -629,76 +697,78 @@ class MainWindow(QMainWindow):
             self.results.append_log("\n".join(str(e) for e in errors))
             return
 
-        try:
-            pu = to_per_unit(net)
-        except PsaError as exc:
-            self._error("The study could not be completed", exc, brief=True)
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._error("Unexpected error while running the study", exc)
-            return
-
-        results = []
-        errors_by_study: list[PsaError] = []
-        for key in keys:
-            study = STUDY_REGISTRY[key]
-            opts = options if options is not None else \
-                self._fill_defaults(key, dict(
-                    self.document.project.studies.get(key, {})))
+        results: list[Result] = []
+        failures: list[PsaError] = []
+        for case in cases:
+            study = STUDY_REGISTRY.get(case.study)
+            if study is None:
+                failures.append(PsaError(f"Unknown study '{case.study}'."))
+                results.append(Result(case.study, case.title or case.id,
+                                      warnings=[f"Unknown study '{case.study}'."],
+                                      case_id=case.id))
+                continue
             try:
-                results.append(study(net, opts, pu))
+                results.append(run_case(net, case, self.document.params))
             except PsaError as exc:
-                # One study that cannot run (say, S1a with unsuitable ports)
+                # One case that cannot run (say, S1a with unsuitable ports)
                 # must not throw away the results of the others.
-                errors_by_study.append(exc)
-                results.append(Result(key, study.title,
-                                      warnings=[f"Could not run: {exc}"]))
+                failures.append(exc)
+                results.append(Result(case.study, case.title or study.title,
+                                      warnings=[f"Could not run: {exc}"],
+                                      case_id=case.id))
             except Exception as exc:  # noqa: BLE001
                 self._error(f"Unexpected error in {study.title}", exc)
                 return
-        if errors_by_study and len(errors_by_study) == len(keys):
-            self._error("The study could not be completed",
-                        errors_by_study[-1], brief=True)
+        if failures and len(failures) == len(cases):
+            self._error("The study could not be completed", failures[-1], brief=True)
             return
-
-        load_flow = None
-        overlay_note = ""
-        if self._has_source(net):
-            try:
-                load_flow = solve_voltages(net, pu)
-            except PsaError as exc:
-                overlay_note = f"Diagram annotations unavailable: {exc}"
 
         self.results.show_results(results)
         self.document.mark_results_valid()
         self.banner.setVisible(False)
         for res in results:
             self.results.append_log(res.text())
-        if overlay_note:
-            self.results.append_log(overlay_note)
-        if self.act_overlay.isChecked() and load_flow is not None:
-            self.scene.show_overlay(load_flow, pu,
-                                    self.document.project.view.get(
-                                        "overlay_mode", "kv_pu"))
+
+        self._annotated = None
+        target = self.results.result_at(self.results.currentIndex())
+        if self._annotating_study(target) is None:
+            target = next((r for r in results if self._annotating_study(r)), None)
+        self._show_annotations(target)
+
         warnings = [w for res in results for w in res.warnings]
         self.status.showMessage(
             "Done. " + (f"{len(warnings)} warning(s), see the Results panel."
                         if warnings else "All cross-checks passed."), 6000)
 
+    # -- diagram annotations -------------------------------------------- #
+
     @staticmethod
-    def _has_source(net) -> bool:
-        return bool(net.slack_sources() or net.of_type("source"))
+    def _annotating_study(res: Result | None):
+        if res is None:
+            return None
+        study = STUDY_REGISTRY.get(res.key)
+        return study if study is not None and study.annotate else None
+
+    def _show_annotations(self, res: Result | None) -> None:
+        study = self._annotating_study(res)
+        if study is None:
+            return
+        self._annotated = res
+        if self.act_overlay.isChecked():
+            mode = self.document.project.view.get("overlay_mode", "kv_pu")
+            self.scene.show_annotations(study.annotate(res, mode))
+
+    def _on_result_activated(self, res: Result | None) -> None:
+        """Switching to a result tab shows that study's annotations, if it has any."""
+        if self.document.results_valid and self._annotating_study(res):
+            self._show_annotations(res)
 
     def _toggle_overlay(self) -> None:
         self.document.project.view["overlay"] = self.act_overlay.isChecked()
         if not self.act_overlay.isChecked():
             self.scene.clear_overlay()
-        elif self.document.results_valid:
-            try:
-                pu = to_per_unit(self.document.network)
-                self.scene.show_overlay(solve_voltages(self.document.network, pu), pu)
-            except Exception:  # noqa: BLE001 - nothing to show is fine
-                pass
+        elif self.document.results_valid and self._annotated is not None:
+            self._show_annotations(self._annotated)
 
     # ------------------------------------------------------------------ #
     # UI state
@@ -777,6 +847,8 @@ class MainWindow(QMainWindow):
                          [420, 250], Qt.Orientation.Vertical)
         self.resizeDocks([self.dock_library, self.dock_properties],
                          [275, 330], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.dock_properties, self.dock_cases],
+                         [430, 240], Qt.Orientation.Vertical)
         self.resizeDocks([self.dock_results], [320], Qt.Orientation.Vertical)
 
     def _restore_window_state(self) -> None:

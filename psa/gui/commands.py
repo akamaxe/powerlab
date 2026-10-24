@@ -189,22 +189,20 @@ class SetParameters(QUndoCommand):
         self.doc._apply_parameters(*self.old)
 
 
-class SetStudyOptions(QUndoCommand):
-    """Remember the options chosen for one study (they are saved with the project)."""
+class SetCases(QUndoCommand):
+    """Replace the project's study cases (they are saved with the project)."""
 
-    def __init__(self, doc, key: str, options: dict):
-        super().__init__(f"Change options of {key}")
+    def __init__(self, doc, cases: list, text: str = "Change study cases"):
+        super().__init__(text)
         self.doc = doc
-        self.key = key
-        self.new = dict(options)
-        old = doc.project.studies.get(key)
-        self.old = dict(old) if old is not None else None
+        self.new = copy.deepcopy(list(cases))
+        self.old = copy.deepcopy(list(doc.project.cases))
 
     def redo(self):
-        self.doc._apply_study_options(self.key, self.new)
+        self.doc._apply_cases(self.new)
 
     def undo(self):
-        self.doc._apply_study_options(self.key, self.old)
+        self.doc._apply_cases(self.old)
 
 
 # --------------------------------------------------------------------------- #

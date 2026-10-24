@@ -21,6 +21,7 @@ from PySide6.QtCore import QPointF, QSettings, Qt   # noqa: E402
 from PySide6.QtWidgets import QApplication          # noqa: E402
 
 from psa.core.analysis import equivalent_impedance     # noqa: E402
+from psa.core.cases import Case                        # noqa: E402
 from psa.core.examples import build_s1, s1_parameter_bindings  # noqa: E402
 from psa.core.params import Parameters                 # noqa: E402
 from psa.core.serialize import Project                 # noqa: E402
@@ -430,7 +431,9 @@ class MainWindowSmoke(unittest.TestCase):
         from psa.gui.mainwindow import MainWindow
 
         doc = s1_document()
-        doc.project.studies["s1a"] = {"bus_i": "bus_a", "bus_j": "bus_a"}
+        doc.project.cases = [
+            Case("s1a", "s1a", options={"bus_i": "bus_a", "bus_j": "bus_a"}),
+            Case("s1b", "s1b"), Case("s1c", "s1c")]
         win = MainWindow(doc)
         with mock.patch.object(win, "_error") as error:
             win.run_all_studies()
@@ -449,17 +452,18 @@ class MainWindowSmoke(unittest.TestCase):
 
         doc = s1_document()
         win = MainWindow(doc)
-        with mock.patch("psa.gui.mainwindow.StudyOptionsDialog") as dialog_cls, \
-                mock.patch.object(win, "_run"):
+        chosen = Case("s1b", "s1b", options={"bus": "bus_b", "far_bus": "bus_e"})
+        with mock.patch("psa.gui.mainwindow.CaseDialog") as dialog_cls, \
+                mock.patch.object(win, "_run_cases") as run:
             dialog = dialog_cls.return_value
             dialog.exec.return_value = dialog_cls.DialogCode.Accepted
-            dialog.options.return_value = {"bus": "bus_b", "far_bus": "bus_e"}
+            dialog.case.return_value = chosen
             win.run_study("s1b")
-        self.assertEqual(doc.project.studies["s1b"],
-                         {"bus": "bus_b", "far_bus": "bus_e"})
+        self.assertEqual(doc.case("s1b").options, {"bus": "bus_b", "far_bus": "bus_e"})
+        self.assertEqual(run.call_args[0][0], [chosen])
         self.assertTrue(doc.is_dirty)
         doc.undo.undo()
-        self.assertNotIn("s1b", doc.project.studies)
+        self.assertIsNone(doc.case("s1b"))
         doc.undo.setClean()
         win.close()
 
@@ -527,5 +531,126 @@ def _spec(doc, obj_id: str, field: str):
     return next(s for s in field_specs(obj) if s.name == field)
 
 
+class StudyCases(unittest.TestCase):
+    """Cases: the generic dialog, the panel actions and the network variants."""
+
+    def test_dialog_lists_the_shunts_on_whichever_buses_are_the_ports(self):
+        from psa.core.study import STUDY_REGISTRY
+        from psa.gui.dialogs import CaseDialog
+
+        doc = s1_document()
+        dialog = CaseDialog(doc, STUDY_REGISTRY["s1a"], Case("s1a", "s1a"))
+        checks = dialog.choice_checks["include_at_ports"]
+        self.assertIn("LDe", checks)
+        self.assertTrue(checks["LDe"].isEnabled())
+        self.assertFalse(checks["SRC"].isEnabled(), "an ideal source at a port")
+        port2 = dialog.widgets["bus_j"]
+        port2.setCurrentIndex(port2.findData("bus_d"))
+        self.assertNotIn("LDe", dialog.choice_checks["include_at_ports"])
+        case = dialog.case()
+        self.assertEqual(case.options["bus_i"], "bus_a")
+        self.assertEqual(case.options["bus_j"], "bus_d")
+        dialog.deleteLater()
+
+    def test_dialog_validates_overrides_and_records_exclusions(self):
+        from psa.core.errors import ExpressionError
+        from psa.core.study import STUDY_REGISTRY
+        from psa.gui.dialogs import CaseDialog
+
+        doc = s1_document()
+        dialog = CaseDialog(doc, STUDY_REGISTRY["s1c"], Case("half", "s1c"))
+        dialog._add_override_row("LDe.p_watts", "1")
+        with self.assertRaises(ExpressionError):
+            dialog.case()
+        dialog.override_table.item(0, 0).setText("LDe.p_mw")
+        dialog.override_table.item(0, 1).setText("0.5*value")
+        for i in range(dialog.exclude_list.count()):
+            item = dialog.exclude_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == "LDb":
+                item.setCheckState(Qt.CheckState.Checked)
+        case = dialog.case()
+        self.assertEqual(case.overrides, {"LDe.p_mw": "0.5*value"})
+        self.assertEqual(case.exclude, ["LDb"])
+        dialog.deleteLater()
+
+    def test_panel_actions_are_undoable(self):
+        from unittest import mock
+
+        from psa.gui.mainwindow import MainWindow
+
+        doc = s1_document()
+        win = MainWindow(doc)
+        with mock.patch("psa.gui.mainwindow.CaseDialog") as dialog_cls:
+            dialog = dialog_cls.return_value
+            dialog.exec.return_value = dialog_cls.DialogCode.Accepted
+            dialog.case.return_value = Case("s1c", "s1c", title="Base",
+                                            options={"bus": "bus_e"})
+            win.new_case("s1c")
+        self.assertEqual([c.id for c in doc.project.cases], ["s1c"])
+        self.assertEqual(win.cases_panel.list.count(), 1)
+        win.duplicate_case("s1c")
+        self.assertEqual([c.id for c in doc.project.cases], ["s1c", "s1c_2"])
+        self.assertEqual(doc.case("s1c_2").title, "Base (copy)")
+        win.delete_case("s1c")
+        self.assertEqual([c.id for c in doc.project.cases], ["s1c_2"])
+        doc.undo.undo()
+        doc.undo.undo()
+        self.assertEqual([c.id for c in doc.project.cases], ["s1c"])
+        doc.undo.setClean()
+        win.close()
+
+    def test_a_variant_case_leaves_the_drawn_network_alone(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = s1_document()
+        p_before = doc.network.get("LDe").p_mw
+        doc.project.cases = [
+            Case("base", "s1c", options={"bus": "bus_e"}),
+            Case("half", "s1c", title="LDe at 50 %", options={"bus": "bus_e"},
+                 overrides={"LDe.p_mw": "0.5*value"})]
+        win = MainWindow(doc)
+        win.run_all_studies()
+        base, half = win.results.result_at(0), win.results.result_at(1)
+        u_base = base.buses["bus_e"]["u"].value
+        u_half = half.buses["bus_e"]["u"].value
+        self.assertGreater(abs(u_half), abs(u_base), "less load, less voltage drop")
+        self.assertEqual(doc.network.get("LDe").p_mw, p_before)
+        self.assertTrue(win.results.tabText(1).startswith("LDe at 50 %"))
+        doc.undo.setClean()
+        win.close()
+
+    def test_annotations_follow_their_element(self):
+        from psa.gui.commands import MoveItems
+        from psa.gui.mainwindow import MainWindow
+
+        doc = s1_document()
+        win = MainWindow(doc)
+        win.run_all_studies()
+        badges = [b for b in win.scene._overlay if b.target == "bus_e"]
+        self.assertEqual(len(badges), 1)
+        x0 = badges[0].pos().x()
+        old = dict(doc.project.layout["bus_e"])
+        new = dict(old, x=old["x"] + 100)
+        doc.undo.push(MoveItems(doc, {"bus_e": (old, new)}))
+        self.assertAlmostEqual(badges[0].pos().x(), x0 + 100)
+        self.assertTrue(doc.results_valid, "moving a symbol changes no number")
+        doc.undo.setClean()
+        win.close()
+
+    def test_switching_tabs_keeps_the_last_annotations(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = s1_document()
+        win = MainWindow(doc)
+        win.run_all_studies()
+        n = len(win.scene._overlay)
+        self.assertGreater(n, 0)
+        win.results.setCurrentIndex(0)          # the per-unit model: no badges
+        self.assertEqual(len(win.scene._overlay), n)
+        doc.undo.setClean()
+        win.close()
+
+
 if __name__ == "__main__":
     unittest.main()
+

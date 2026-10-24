@@ -1,9 +1,12 @@
-"""Dialogs: base settings, study options and the port-exclusion editor."""
+"""Dialogs: base settings and study cases."""
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -11,12 +14,24 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
-from ..core.components import buses_of, display_name, is_node_shunt
-from ..core.components import Source
+from ..core.cases import Case
+from ..core.components import display_name
+from ..core.errors import ExpressionError
+from ..core.params import safe_eval
 
 
 class BaseSettingsDialog(QDialog):
@@ -77,15 +92,24 @@ class BaseSettingsDialog(QDialog):
                 self.ref_bus.currentData() or "", self.ref_u.value())
 
 
-class StudyOptionsDialog(QDialog):
-    """Options for one study, generated from its ``option_fields``."""
+class CaseDialog(QDialog):
+    """One study case: the study's options plus an optional network variant.
 
-    def __init__(self, document, study, defaults: dict | None = None, parent=None):
+    The option widgets come from the study's ``option_fields``; an
+    ``elements`` option asks the study for its choices again whenever another
+    option changes (S1a lists the shunts on whichever buses are the ports).
+    """
+
+    def __init__(self, document, study, case: Case, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(study.title)
+        self.setWindowTitle(f"{study.title}: {case.id}")
+        self.setMinimumWidth(460)
         self.document = document
         self.study = study
-        defaults = defaults or {}
+        self.base_case = case
+        net = document.network
+        options = study.default_options(net)
+        options.update(case.options)
 
         layout = QVBoxLayout(self)
         if study.description:
@@ -93,110 +117,271 @@ class StudyOptionsDialog(QDialog):
             desc.setWordWrap(True)
             desc.setStyleSheet("color:#5b666e;")
             layout.addWidget(desc)
-
-        if study.key == "s1a":
-            conv = QLabel("Convention:  [U₁; I₁] = F · [U₂; I₂]"
-                          "\nPort 1 is the source side, port 2 the load side. "
-                          "Swapping them gives a different matrix.")
-            conv.setWordWrap(True)
-            conv.setStyleSheet(
+        if study.note:
+            note = QLabel(study.note)
+            note.setWordWrap(True)
+            note.setStyleSheet(
                 "background:#eef4fb; border:1px solid #c6d9ee; border-radius:3px;"
                 "padding:6px; color:#194a7a; font-size:11px;")
-            layout.addWidget(conv)
+            layout.addWidget(note)
 
+        # Two tabs keep the dialog short enough for a scaled laptop screen.
+        self.tabs = QTabWidget()
+        options_page = QWidget()
+        page = QVBoxLayout(options_page)
         form = QFormLayout()
-        self.widgets: dict[str, QComboBox] = {}
-        for spec in study.option_fields:
-            combo = QComboBox()
-            if spec.kind == "bus":
-                if spec.name == "far_bus":
-                    combo.addItem("(none)", "")
-                for bus_id, label in document.bus_choices():
-                    combo.addItem(label, bus_id)
-                index = combo.findData(defaults.get(spec.name, ""))
-                combo.setCurrentIndex(max(0, index))
-            if spec.tooltip:
-                combo.setToolTip(spec.tooltip)
-            self.widgets[spec.name] = combo
-            form.addRow(spec.label, combo)
-        layout.addLayout(form)
+        self.title_edit = QLineEdit(case.title)
+        self.title_edit.setPlaceholderText(study.title)
+        form.addRow("Case title", self.title_edit)
 
-        self.excluded_box: QGroupBox | None = None
-        self.exclusion_checks: dict[str, QCheckBox] = {}
-        if study.key in ("s1a", "s1b"):
-            self._build_exclusions(layout, defaults)
+        self.widgets: dict[str, QWidget] = {}
+        self.choice_boxes: dict[str, QGroupBox] = {}
+        self.choice_checks: dict[str, dict[str, QCheckBox]] = {}
+        for spec in study.option_fields:
+            if spec.kind == "elements":
+                box = QGroupBox(spec.label)
+                box.setLayout(QVBoxLayout())
+                if spec.tooltip:
+                    hint = QLabel(spec.tooltip)
+                    hint.setWordWrap(True)
+                    hint.setStyleSheet("color:#5b666e; font-size:11px;")
+                    box.layout().addWidget(hint)
+                self.choice_boxes[spec.name] = box
+                self.choice_checks[spec.name] = {}
+                continue
+            widget = self._make_widget(spec, options.get(spec.name))
+            if spec.tooltip:
+                widget.setToolTip(spec.tooltip)
+            self.widgets[spec.name] = widget
+            form.addRow(spec.label + (f" [{spec.unit}]" if spec.unit else ""), widget)
+        page.addLayout(form)
+        for name, box in self.choice_boxes.items():
+            page.addWidget(box)
+        page.addStretch(1)
+        self._selected = {name: set(options.get(name) or ())
+                          for name in self.choice_boxes}
+
+        self.tabs.addTab(options_page, "Options")
+        variant = len(case.exclude) + len(case.overrides)
+        self.tabs.addTab(self._build_variant(case),
+                         "Network variant" + (f" ({variant})" if variant else ""))
+        layout.addWidget(self.tabs)
+
+        self.error = QLabel("")
+        self.error.setWordWrap(True)
+        self.error.setStyleSheet("color:#b42318;")
+        self.error.setVisible(False)
+        layout.addWidget(self.error)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        for combo in self.widgets.values():
-            combo.currentIndexChanged.connect(self._refresh_exclusions)
-        self._refresh_exclusions()
+        for widget in self.widgets.values():
+            signal = getattr(widget, "currentIndexChanged", None)
+            if signal is not None:
+                signal.connect(self._refresh_choices)
+        self._refresh_choices()
 
-    # -- port exclusions ------------------------------------------------ #
+    # -- option widgets ------------------------------------------------- #
 
-    def _build_exclusions(self, layout, defaults) -> None:
-        self.excluded_box = QGroupBox("Shunts at the ports")
-        box = QVBoxLayout(self.excluded_box)
-        note = QLabel(
-            "A load or source sitting on a port bus is the termination, not "
-            "part of the two-port, so it is excluded. Tick one to include it "
-            "anyway. Line charging is always kept.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color:#5b666e; font-size:11px;")
-        box.addWidget(note)
-        self._exclusion_host = box
-        layout.addWidget(self.excluded_box)
-
-    def _ports(self) -> tuple[str, str]:
-        if self.study.key == "s1a":
-            return (self.widgets["bus_i"].currentData() or "",
-                    self.widgets["bus_j"].currentData() or "")
-        return (self.widgets["bus"].currentData() or "",
-                self.widgets.get("far_bus").currentData() or ""
-                if "far_bus" in self.widgets else "")
-
-    def _refresh_exclusions(self) -> None:
-        if self.excluded_box is None:
-            return
-        for check in self.exclusion_checks.values():
-            self._exclusion_host.removeWidget(check)
-            check.deleteLater()
-        self.exclusion_checks.clear()
-
-        bus_i, bus_j = self._ports()
-        ports = {b for b in (bus_i, bus_j) if b}
+    def _make_widget(self, spec, value) -> QWidget:
         net = self.document.network
-        found = False
-        for comp in net.active_components():
-            if not is_node_shunt(comp):
-                continue
-            bs = buses_of(comp)
-            if not bs or bs[0] not in ports:
-                continue
-            found = True
-            ideal_source = isinstance(comp, Source) and comp.is_ideal
-            check = QCheckBox(
-                f"Include {display_name(comp)} ({comp.TYPE}) at bus "
-                f"{display_name(net.buses[bs[0]])}")
-            check.setProperty("comp_id", comp.id)
-            if ideal_source:
-                check.setEnabled(False)
-                check.setToolTip(
-                    "An ideal voltage source at a port is a short circuit "
-                    "across it, so it can never be included.")
-            self.exclusion_checks[comp.id] = check
-            self._exclusion_host.addWidget(check)
-        self.excluded_box.setVisible(found)
+        if spec.kind in ("bus", "element"):
+            combo = QComboBox()
+            if getattr(spec, "optional", False):
+                combo.addItem("(none)", "")
+            if spec.kind == "bus":
+                for bus_id, label in self.document.bus_choices():
+                    combo.addItem(label, bus_id)
+            else:
+                types = getattr(spec, "element_types", ())
+                for comp in net.components.values():
+                    if not types or comp.TYPE in types:
+                        combo.addItem(f"{display_name(comp)} ({comp.TYPE})", comp.id)
+            combo.setCurrentIndex(max(0, combo.findData(value or "")))
+            return combo
+        if spec.kind == "choice":
+            combo = QComboBox()
+            for choice in spec.choices:
+                combo.addItem(choice, choice)
+            combo.setCurrentIndex(max(0, combo.findData(value)))
+            return combo
+        if spec.kind == "bool":
+            check = QCheckBox()
+            check.setChecked(bool(value))
+            return check
+        edit = QLineEdit("" if value is None else str(value))
+        return edit
+
+    def _value(self, spec, widget):
+        if isinstance(widget, QComboBox):
+            return widget.currentData() or ""
+        if isinstance(widget, QCheckBox):
+            return widget.isChecked()
+        text = widget.text().strip()
+        if spec.kind == "str" or text == "":
+            return text
+        if spec.kind == "complex":
+            text = re.sub(r"(?<=[0-9.])i\b", "j", text)    # MATLAB's 0.3i
+        number = safe_eval(text, self.document.params.values(), target=spec.label)
+        if spec.kind == "int":
+            return int(round(float(number.real if isinstance(number, complex) else number)))
+        if spec.kind == "complex":
+            return complex(number)
+        return float(number.real if isinstance(number, complex) else number)
+
+    def _current_options(self) -> dict:
+        out = {}
+        for spec in self.study.option_fields:
+            if spec.name in self.widgets:
+                widget = self.widgets[spec.name]
+                if isinstance(widget, QComboBox) or isinstance(widget, QCheckBox):
+                    out[spec.name] = self._value(spec, widget)
+        return out
+
+    def _refresh_choices(self) -> None:
+        net = self.document.network
+        current = self._current_options()
+        for name, box in self.choice_boxes.items():
+            for check in self.choice_checks[name].values():
+                self._selected[name].discard(check.property("value"))
+                if check.isChecked():
+                    self._selected[name].add(check.property("value"))
+                box.layout().removeWidget(check)
+                check.deleteLater()
+            self.choice_checks[name].clear()
+            choices = (self.study.dynamic_choices(net, current, name)
+                       if self.study.dynamic_choices else [])
+            for choice in choices:
+                check = QCheckBox(choice.label)
+                check.setProperty("value", choice.value)
+                check.setEnabled(choice.enabled)
+                check.setChecked(choice.enabled and choice.value in self._selected[name])
+                if choice.tooltip:
+                    check.setToolTip(choice.tooltip)
+                box.layout().addWidget(check)
+                self.choice_checks[name][choice.value] = check
+            box.setVisible(bool(choices))
+
+    # -- network variant ------------------------------------------------ #
+
+    def _build_variant(self, case: Case) -> QWidget:
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        hint = QLabel(
+            "Take elements out of service, or override a field with an "
+            "expression (the project variables and value, the field's own "
+            "value, are available: 0.5*value halves it). The drawn network is "
+            "not changed.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#5b666e; font-size:11px;")
+        layout.addWidget(hint)
+
+        layout.addWidget(QLabel("Out of service"))
+        self.exclude_list = QListWidget()
+        self.exclude_list.setFixedHeight(160)
+        net = self.document.network
+        for obj in list(net.buses.values()) + list(net.components.values()):
+            kind = "bus" if obj.id in net.buses else obj.TYPE
+            item = QListWidgetItem(f"{display_name(obj)} ({kind})")
+            item.setData(Qt.ItemDataRole.UserRole, obj.id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if obj.id in case.exclude
+                               else Qt.CheckState.Unchecked)
+            self.exclude_list.addItem(item)
+        layout.addWidget(self.exclude_list)
+
+        layout.addWidget(QLabel("Overrides"))
+        self.override_table = QTableWidget(0, 2)
+        self.override_table.setHorizontalHeaderLabels(["Component.field", "Expression"])
+        self.override_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        self.override_table.verticalHeader().setVisible(False)
+        self.override_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.override_table.setColumnWidth(0, 170)
+        self.override_table.setFixedHeight(110)
+        for key, expr in case.overrides.items():
+            self._add_override_row(key, expr)
+        layout.addWidget(self.override_table)
+        row = QHBoxLayout()
+        add = QPushButton("Add override")
+        add.clicked.connect(lambda: self._add_override_row("", ""))
+        remove = QPushButton("Remove")
+        remove.clicked.connect(self._remove_override_row)
+        row.addWidget(add)
+        row.addWidget(remove)
+        row.addStretch(1)
+        layout.addLayout(row)
+        return box
+
+    def _add_override_row(self, key: str, expr: str) -> None:
+        r = self.override_table.rowCount()
+        self.override_table.insertRow(r)
+        self.override_table.setItem(r, 0, QTableWidgetItem(key))
+        self.override_table.setItem(r, 1, QTableWidgetItem(expr))
+
+    def _remove_override_row(self) -> None:
+        rows = sorted({i.row() for i in self.override_table.selectedIndexes()},
+                      reverse=True)
+        for r in rows:
+            self.override_table.removeRow(r)
+
+    def _overrides(self) -> dict[str, str]:
+        out = {}
+        for r in range(self.override_table.rowCount()):
+            key = (self.override_table.item(r, 0) or QTableWidgetItem("")).text().strip()
+            expr = (self.override_table.item(r, 1) or QTableWidgetItem("")).text().strip()
+            if key or expr:
+                out[key] = expr
+        return out
+
+    def _check_overrides(self, overrides: dict[str, str]) -> None:
+        net = self.document.network
+        names = self.document.params.values()
+        for key, expr in overrides.items():
+            comp_id, _, field_name = key.partition(".")
+            if comp_id not in net or not hasattr(net.get(comp_id), field_name):
+                raise ExpressionError(
+                    f"Override '{key}': write it as COMPONENT_ID.field, e.g. "
+                    f"LD4.p_mw.", expr, key)
+            safe_eval(expr, {**names, "value": getattr(net.get(comp_id), field_name)},
+                      target=key)
 
     # -- result --------------------------------------------------------- #
 
-    def options(self) -> dict:
-        out = {name: (w.currentData() or "") for name, w in self.widgets.items()}
-        includes = [cid for cid, check in self.exclusion_checks.items()
-                    if check.isChecked() and check.isEnabled()]
-        if includes:
-            out["include_at_ports"] = includes
-        return out
+    def _accept(self) -> None:
+        try:
+            self._result = self._build_case()
+        except (ExpressionError, ValueError, TypeError) as exc:
+            self.error.setText(str(exc))
+            self.error.setVisible(True)
+            return
+        self.accept()
+
+    def _build_case(self) -> Case:
+        options = {}
+        for spec in self.study.option_fields:
+            if spec.name in self.widgets:
+                options[spec.name] = self._value(spec, self.widgets[spec.name])
+            elif spec.name in self.choice_checks:
+                picked = [v for v, check in self.choice_checks[spec.name].items()
+                          if check.isChecked() and check.isEnabled()]
+                if picked:
+                    options[spec.name] = picked
+        overrides = self._overrides()
+        self._check_overrides(overrides)
+        exclude = []
+        for i in range(self.exclude_list.count()):
+            item = self.exclude_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                exclude.append(item.data(Qt.ItemDataRole.UserRole))
+        return Case(id=self.base_case.id, study=self.study.key,
+                    title=self.title_edit.text().strip(), options=options,
+                    overrides=overrides, exclude=exclude)
+
+    def case(self) -> Case:
+        """The edited case (call after the dialog was accepted)."""
+        return getattr(self, "_result", None) or self._build_case()

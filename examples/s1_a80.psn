@@ -1,6 +1,6 @@
 {
   "format": "psa-project",
-  "version": 1,
+  "version": 2,
   "meta": {
     "title": "EG2100 Assignment S1, A = 80",
     "notes": "Factory fed from a 40 kV grid. Reference answers: Z_I = 22.5232 + 11.1298i pu, U_e = 5.9715 kV. Set A = 0 to reproduce the answer printed in the assignment."
@@ -242,19 +242,36 @@
     },
     "wires": {}
   },
-  "studies": {
-    "s1a": {
-      "bus_i": "bus_a",
-      "bus_j": "bus_e"
+  "cases": [
+    {
+      "id": "model",
+      "study": "model",
+      "options": {}
     },
-    "s1b": {
-      "bus": "bus_a",
-      "far_bus": "bus_e"
+    {
+      "id": "s1a",
+      "study": "s1a",
+      "options": {
+        "bus_i": "bus_a",
+        "bus_j": "bus_e"
+      }
     },
-    "s1c": {
-      "bus": "bus_e"
+    {
+      "id": "s1b",
+      "study": "s1b",
+      "options": {
+        "bus": "bus_a",
+        "far_bus": "bus_e"
+      }
+    },
+    {
+      "id": "s1c",
+      "study": "s1c",
+      "options": {
+        "bus": "bus_e"
+      }
     }
-  },
+  ],
   "view": {
     "overlay": true,
     "overlay_mode": "kv_pu"

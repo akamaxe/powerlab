@@ -45,7 +45,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Could not open {args.project}: {exc}", file=sys.stderr)
             return 2
         net = proj.network
-        study_options = proj.studies
+        # Each study runs with the options of the project's case of the same id.
+        study_options = {c.id: c.options for c in proj.cases}
         title = proj.meta.get("title") or Path(args.project).name
         if proj.params.script_path and not args.run_script:
             print(f"Note: the linked script {proj.params.script_path} was not "

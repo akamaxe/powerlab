@@ -1,7 +1,7 @@
 """Project persistence: ``.psn`` files (UTF-8 JSON).
 
 A project is the network plus everything around it that is not physics: the
-parametric bindings, the drawing layout, the study options and the view state.
+parametric bindings, the drawing layout, the study cases and the view state.
 Keeping those in parallel sections rather than inside the component dataclasses
 is what lets the core stay Qt-free and the file stay readable in a diff.
 
@@ -19,17 +19,28 @@ from typing import Any
 
 import networkx as nx
 
+from .cases import Case
 from .components import Bus, TYPE_REGISTRY, buses_of, is_series
 from .errors import ValidationError
 from .network import Network
 from .params import Parameters
 
 FORMAT = "psa-project"
-VERSION = 1
+VERSION = 2
 
-#: Migrations from an older file version to the next one. Empty today, but the
-#: hook has to exist from the start or v2 becomes a breaking change.
-MIGRATIONS: dict[int, Any] = {}
+
+def _v1_to_v2(data: dict) -> dict:
+    """Version 1 kept one options dict per study; version 2 has study cases."""
+    data = dict(data)
+    studies = data.pop("studies", None) or {}
+    data["cases"] = [{"id": key, "study": key, "options": dict(opts or {})}
+                     for key, opts in studies.items()]
+    data["version"] = 2
+    return data
+
+
+#: Migrations from an older file version to the next one.
+MIGRATIONS: dict[int, Any] = {1: _v1_to_v2}
 
 GRID = 10
 
@@ -47,7 +58,7 @@ class Project:
     params: Parameters = field(default_factory=Parameters)
     layout: dict[str, dict] = field(default_factory=dict)
     wires: dict[str, list[list[float]]] = field(default_factory=dict)
-    studies: dict[str, dict] = field(default_factory=dict)
+    cases: list[Case] = field(default_factory=list)
     view: dict[str, Any] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
     path: str | None = None
@@ -165,7 +176,7 @@ def project_to_dict(proj: Project) -> dict:
             "items": proj.layout,
             "wires": proj.wires,
         },
-        "studies": proj.studies,
+        "cases": [c.to_dict() for c in proj.cases],
         "view": proj.view,
     }
     if proj.network.meta:
@@ -210,7 +221,7 @@ def project_from_dict(data: dict, path: str | None = None) -> Project:
 
     raw_layout = data.get("layout") or {}
     known = {"format", "version", "meta", "network", "parameters", "layout",
-             "studies", "view"}
+             "cases", "view"}
     unknown = {k: v for k, v in data.items() if k not in known}
     if unknown:
         meta["_unknown"] = unknown
@@ -221,7 +232,7 @@ def project_from_dict(data: dict, path: str | None = None) -> Project:
         layout=dict(raw_layout.get("items") or {}),
         wires={k: [list(pt) for pt in v]
                for k, v in (raw_layout.get("wires") or {}).items()},
-        studies=dict(data.get("studies") or {}),
+        cases=[Case.from_dict(c) for c in (data.get("cases") or [])],
         view=dict(data.get("view") or {}),
         meta=meta,
         path=path,
@@ -238,7 +249,8 @@ def save(proj: Project, path: str | Path) -> Path:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(project_to_dict(proj), indent=2, ensure_ascii=False)
-    p.write_text(text + "\n", encoding="utf-8")
+    # LF on every platform, so a project file diffs the same everywhere.
+    p.write_text(text + "\n", encoding="utf-8", newline="\n")
     proj.path = str(p)
     return p
 

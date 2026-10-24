@@ -1,7 +1,9 @@
-"""Presentation of study results.
+"""Study results: the numbers, and their presentation.
 
-Studies return plain data; this module turns it into :class:`Table` objects the
-GUI renders directly and the headless runner prints. Formatting follows the
+A :class:`Result` carries both the formatted :class:`Table` objects the GUI
+renders and the headless runner prints, and the numeric payload behind them
+(:class:`Quantity` per bus, per element and overall, :class:`LabeledMatrix`)
+that diagram annotations and exports are built from. Formatting follows the
 course convention: impedance and complex power rectangular, voltage and current
 polar with the angle in degrees.
 """
@@ -15,7 +17,15 @@ import numpy as np
 from .analysis import EquivalentZResult, LoadFlowResult
 from .perunit import PuModel
 from .twoport import TwoPortResult
-from .units import fmt_matrix, fmt_polar, fmt_real, fmt_rect, short_style
+from .units import (
+    fmt_matrix,
+    fmt_polar,
+    fmt_quantity,
+    fmt_real,
+    fmt_rect,
+    polar_pair,
+    short_style,
+)
 
 
 @dataclass
@@ -49,14 +59,61 @@ class Table:
 
 
 @dataclass
+class Quantity:
+    """A number plus what it means, so it can be formatted and annotated.
+
+    ``kind`` is a key of :data:`psa.core.units.QUANTITY_STYLE` (for example
+    ``voltage_pu``, ``power_mva``, ``impedance_pu``), which fixes the course
+    presentation: rectangular, polar or plain.
+    """
+
+    value: complex | float
+    kind: str = "ratio"
+    label: str = ""
+
+    def text(self) -> str:
+        return fmt_quantity(self.value, self.kind)
+
+
+@dataclass
+class LabeledMatrix:
+    """A matrix with its row and column labels (bus names, sequence names)."""
+
+    data: np.ndarray
+    rows: list[str]
+    cols: list[str]
+    kind: str = "admittance_pu"
+    title: str = ""
+
+
+@dataclass(frozen=True)
+class Annotation:
+    """One badge on the diagram: some lines of text pinned to an element."""
+
+    target: str                     # bus or component id
+    lines: tuple[str, ...]
+    slot: str = "bus"               # bus | branch | element
+    colour: str = "text"            # text | flow | warn
+
+
+@dataclass
 class Result:
-    """A study's output: a headline plus one or more tables."""
+    """A study's output: a headline, tables, and the numbers behind them."""
 
     key: str
     title: str
     tables: list[Table] = field(default_factory=list)
     headline: str = ""
     warnings: list[str] = field(default_factory=list)
+    #: Overall values, e.g. ``{"Z": Quantity(...)}``.
+    scalars: dict[str, Quantity] = field(default_factory=dict)
+    #: Per-bus values, ``{bus_id: {"u": Quantity, ...}}``.
+    buses: dict[str, dict[str, Quantity]] = field(default_factory=dict)
+    #: Per-component values, ``{comp_id: {"i_from": Quantity, ...}}``.
+    elements: dict[str, dict[str, Quantity]] = field(default_factory=dict)
+    matrices: dict[str, LabeledMatrix] = field(default_factory=dict)
+    #: The case that produced it, empty for a bare study run.
+    case_id: str = ""
 
     def text(self) -> str:
         parts = [f"=== {self.title} ==="]
@@ -177,6 +234,12 @@ def two_port_result(tp: TwoPortResult, title: str = "S1a) Two-port matrix") -> R
     a, b, c, d = tp.abcd
     res.headline = (f"A = {fmt_rect(a)}   B = {fmt_rect(b)}\n"
                     f"C = {fmt_rect(c)}   D = {fmt_rect(d)}")
+    res.matrices["F"] = LabeledMatrix(
+        np.array(tp.f, dtype=complex), ["U1", "I1"], ["U2", "I2"],
+        kind="ratio", title=f"F_{li}{lj}")
+    for name, value in zip("ABCD", (a, b, c, d)):
+        res.scalars[name] = Quantity(value, "impedance_pu", name)
+    res.scalars["det"] = Quantity(tp.det, "ratio", "det(F)")
     return res
 
 
@@ -203,6 +266,8 @@ def equivalent_z_result(eq: EquivalentZResult,
         res.tables.append(c)
 
     res.headline = f"Z = {fmt_rect(eq.z_pu, unit='pu')} = {fmt_rect(eq.z_ohm, unit='ohm')}"
+    res.scalars["Z"] = Quantity(eq.z_pu, "impedance_pu", f"Z seen from bus {lb}")
+    res.scalars["Z_ohm"] = Quantity(eq.z_ohm, "impedance_ohm", f"Z seen from bus {lb}")
     return res
 
 
@@ -218,6 +283,11 @@ def voltage_result(lf: LoadFlowResult, pu: PuModel,
         mag, ang = lf.u_polar(bus_id)
         t.add(lab.get(bus_id, bus_id), fmt_real(mag), f"{ang:.4f}", fmt_real(lf.u_kv[bus_id]),
               fmt_polar(lf.i_inject_pu[bus_id]))
+        res.buses[bus_id] = {
+            "u": Quantity(u, "voltage_pu", "U"),
+            "u_kv": Quantity(lf.u_kv[bus_id], "ratio", "|U| [kV]"),
+            "i_inject": Quantity(lf.i_inject_pu[bus_id], "current_pu", "I injected"),
+        }
     res.tables.append(t)
 
     f = Table("Branch flows",
@@ -228,6 +298,11 @@ def voltage_result(lf: LoadFlowResult, pu: PuModel,
               lab.get(br.bus_to, br.bus_to),
               fmt_polar(br.i_from_pu), fmt_rect(br.s_from_pu),
               fmt_rect(br.losses_pu))
+        res.elements[br.comp_id] = {
+            "i_from": Quantity(br.i_from_pu, "current_pu", "I from"),
+            "s_from": Quantity(br.s_from_pu * lf.s_base_mva, "power_mva", "S from"),
+            "losses": Quantity(br.losses_pu * lf.s_base_mva, "power_mva", "losses"),
+        }
     f.note = (f"total losses = {fmt_rect(lf.total_losses_pu, unit='pu')} = "
               f"{fmt_rect(lf.total_losses_pu * lf.s_base_mva, unit='MVA')}")
     res.tables.append(f)
@@ -240,6 +315,12 @@ def voltage_result(lf: LoadFlowResult, pu: PuModel,
               fmt_rect(lf.s_source_mva[comp_id]))
     res.tables.append(s)
 
+    for comp_id, i_pu in lf.i_source_pu.items():
+        res.elements.setdefault(comp_id, {}).update({
+            "i": Quantity(i_pu, "current_pu", "I"),
+            "s": Quantity(lf.s_source_mva[comp_id], "power_mva", "S"),
+        })
+
     if focus_bus:
         mag, ang = lf.u_polar(focus_bus)
         slack = lf.slack_buses[0] if lf.slack_buses else None
@@ -251,6 +332,31 @@ def voltage_result(lf: LoadFlowResult, pu: PuModel,
                         f"{fmt_polar(lf.u_pu[focus_bus], 'pu')}"
                         f" = {fmt_real(lf.u_kv[focus_bus])} kV{drop}")
     return res
+
+
+def annotate_voltages(res: Result, mode: str = "kv_pu") -> list[Annotation]:
+    """Bus voltages and branch flows of a nodal solution, as diagram badges.
+
+    ``mode`` ``"kv"`` shows only the magnitude in kV; anything else adds the
+    per-unit phasor.
+    """
+    out: list[Annotation] = []
+    for bus_id, q in res.buses.items():
+        if "u" not in q:
+            continue
+        mag, ang = polar_pair(q["u"].value)
+        lines = [f"{q['u_kv'].value:.4f} kV"]
+        if mode != "kv":
+            lines.append(f"{mag:.4f} pu < {ang:.3f}\N{DEGREE SIGN}")
+        out.append(Annotation(bus_id, tuple(lines), "bus"))
+    for comp_id, q in res.elements.items():
+        if "i_from" not in q:
+            continue
+        s = q["s_from"].value
+        out.append(Annotation(
+            comp_id, (f"{abs(q['i_from'].value):.4f} pu",
+                      f"{s.real:+.4f}{s.imag:+.4f}j MVA"), "branch", "flow"))
+    return out
 
 
 def phasor_chain_table(u_a: complex, i_a: complex, u_e: complex, i_e: complex,

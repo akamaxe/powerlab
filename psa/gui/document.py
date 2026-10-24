@@ -39,6 +39,7 @@ class NetworkDocument(QObject):
     resultsInvalidated = Signal()
     dirtyChanged = Signal(bool)
     parametersChanged = Signal()
+    casesChanged = Signal()
 
     def __init__(self, project: Project | None = None, parent=None):
         super().__init__(parent)
@@ -217,11 +218,9 @@ class NetworkDocument(QObject):
         self.structureChanged.emit()
         self.invalidate_results()
 
-    def _apply_study_options(self, key: str, options: dict | None) -> None:
-        if options is None:
-            self.project.studies.pop(key, None)
-        else:
-            self.project.studies[key] = dict(options)
+    def _apply_cases(self, cases: list) -> None:
+        self.project.cases = copy.deepcopy(list(cases))
+        self.casesChanged.emit()
 
     # ------------------------------------------------------------------ #
     # Parameter evaluation
@@ -261,6 +260,10 @@ class NetworkDocument(QObject):
     def bus_choices(self) -> list[tuple[str, str]]:
         """``(id, label)`` for every bus, for the combo boxes."""
         return [(b.id, b.name or b.id) for b in self.network.buses.values()]
+
+    def case(self, case_id: str):
+        """The project's case with this id, or ``None``."""
+        return next((c for c in self.project.cases if c.id == case_id), None)
 
     def ensure_layout(self) -> None:
         missing = [o.id for o in self.network if o.id not in self.project.layout]

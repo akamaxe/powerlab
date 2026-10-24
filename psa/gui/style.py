@@ -30,6 +30,7 @@ WIRE = QColor("#141719")
 RESULT_TEXT = QColor("#0b5f3a")
 RESULT_BG = QColor(255, 255, 255, 225)
 RESULT_FLOW = QColor("#8a4b08")
+RESULT_WARN = QColor("#b42318")
 OUT_OF_SERVICE = QColor("#9aa4ac")
 
 # --------------------------------------------------------------------------- #
@@ -141,8 +142,9 @@ QToolBar { background: #e9edf0; border-bottom: 1px solid #cfd6db; spacing: 3px; 
 QToolButton { padding: 4px 7px; border-radius: 3px; }
 QToolButton:hover { background: #d6dee4; }
 QToolButton:checked { background: #c3d4e4; }
-QTableWidget {
+QTableWidget, QListWidget {
     background: #ffffff; gridline-color: #e4e8eb;
+    alternate-background-color: #f4f7f9;
     selection-background-color: #cfe2f5; selection-color: #141719;
 }
 QHeaderView::section {

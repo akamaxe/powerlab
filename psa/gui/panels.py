@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QMimeData, QPointF, QSize, Qt, Signal
-from PySide6.QtGui import QDrag, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QDrag, QGuiApplication, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -625,18 +626,133 @@ class VariablesPanel(QWidget):
 # --------------------------------------------------------------------------- #
 
 
+class CasesPanel(QWidget):
+    """The project's study cases: what F5 runs, and how each one is set up."""
+
+    newRequested = Signal(str)              # study key
+    editRequested = Signal(str)             # case id
+    duplicateRequested = Signal(str)
+    deleteRequested = Signal(str)
+    runRequested = Signal(list)             # case ids
+    runAllRequested = Signal()
+
+    def __init__(self, document, parent=None):
+        super().__init__(parent)
+        self.document = document
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        self.placeholder = QLabel(
+            "No cases yet: F5 runs every study with its default options. "
+            "Save one with New... or from the Calculate menu.")
+        self.placeholder.setWordWrap(True)
+        self.placeholder.setStyleSheet("color:#5b666e; font-size:11px;")
+        layout.addWidget(self.placeholder)
+
+        self.list = QListWidget()
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list.itemDoubleClicked.connect(
+            lambda item: self.editRequested.emit(item.data(Qt.ItemDataRole.UserRole)))
+        layout.addWidget(self.list, 1)
+
+        row = QHBoxLayout()
+        self.btn_new = QPushButton("New...")
+        self.btn_new.setMenu(self._study_menu())
+        self.btn_edit = QPushButton("Edit...")
+        self.btn_edit.clicked.connect(lambda: self._emit_current(self.editRequested))
+        self.btn_dup = QPushButton("Duplicate")
+        self.btn_dup.clicked.connect(lambda: self._emit_current(self.duplicateRequested))
+        self.btn_del = QPushButton("Delete")
+        self.btn_del.clicked.connect(lambda: self._emit_current(self.deleteRequested))
+        for b in (self.btn_new, self.btn_edit, self.btn_dup, self.btn_del):
+            row.addWidget(b)
+        layout.addLayout(row)
+
+        row = QHBoxLayout()
+        self.btn_run = QPushButton("Run selected")
+        self.btn_run.clicked.connect(
+            lambda: self.runRequested.emit(self.selected_ids()))
+        self.btn_run_all = QPushButton("Run all (F5)")
+        self.btn_run_all.clicked.connect(self.runAllRequested.emit)
+        row.addWidget(self.btn_run)
+        row.addWidget(self.btn_run_all)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        self.list.itemSelectionChanged.connect(self._update_buttons)
+        document.casesChanged.connect(self.refresh)
+        self.refresh()
+
+    def _study_menu(self) -> QMenu:
+        from ..core.study import studies_by_group
+
+        menu = QMenu(self)
+        for group, studies in studies_by_group().items():
+            sub = menu.addMenu(group)
+            for study in studies:
+                sub.addAction(study.title).triggered.connect(
+                    lambda _=False, k=study.key: self.newRequested.emit(k))
+        return menu
+
+    def _emit_current(self, signal) -> None:
+        ids = self.selected_ids()
+        if ids:
+            signal.emit(ids[0])
+
+    def selected_ids(self) -> list[str]:
+        return [i.data(Qt.ItemDataRole.UserRole) for i in self.list.selectedItems()]
+
+    def set_document(self, document) -> None:
+        self.document = document
+        document.casesChanged.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self) -> None:
+        from ..core.study import STUDY_REGISTRY
+
+        keep = set(self.selected_ids())
+        self.list.clear()
+        for case in self.document.project.cases:
+            study = STUDY_REGISTRY.get(case.study)
+            label = case.title or (study.title if study else case.study)
+            extra = []
+            if case.exclude:
+                extra.append(f"{len(case.exclude)} out of service")
+            if case.overrides:
+                extra.append(f"{len(case.overrides)} override(s)")
+            item = QListWidgetItem(label + (f"   [{', '.join(extra)}]" if extra else ""))
+            item.setData(Qt.ItemDataRole.UserRole, case.id)
+            item.setToolTip(f"id: {case.id}\nstudy: {case.study}"
+                            + ("" if study else "  (unknown study)"))
+            self.list.addItem(item)
+            if case.id in keep:
+                item.setSelected(True)
+        self.placeholder.setVisible(not self.document.project.cases)
+        self._update_buttons()
+
+    def _update_buttons(self) -> None:
+        has = bool(self.selected_ids())
+        for b in (self.btn_edit, self.btn_dup, self.btn_del, self.btn_run):
+            b.setEnabled(has)
+
+
 class ResultsPanel(QTabWidget):
     """One tab per study result, plus a log tab."""
+
+    #: The result shown by the current tab (``None`` for the log).
+    resultActivated = Signal(object)
 
     def __init__(self, document, parent=None):
         super().__init__(parent)
         self.document = document
         self._stale = False
+        self._results: list = []
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setFont(st.result_font(9))
         self.addTab(self.log, "Log")
         document.resultsInvalidated.connect(self.mark_stale)
+        self.currentChanged.connect(self._on_current_changed)
 
     # -- state --------------------------------------------------------- #
 
@@ -649,13 +765,22 @@ class ResultsPanel(QTabWidget):
         self.setToolTip("Results are stale. Run the studies again.")
 
     def show_results(self, results) -> None:
+        self.blockSignals(True)
         while self.count() > 1:
             self.removeTab(0)
+        self._results = list(results)
         for res in reversed(results):
             self.insertTab(0, self._build_tab(res), _short_title(res.title))
         self._stale = False
         self.setToolTip("")
         self.setCurrentIndex(0)
+        self.blockSignals(False)
+
+    def result_at(self, index: int):
+        return self._results[index] if 0 <= index < len(self._results) else None
+
+    def _on_current_changed(self, index: int) -> None:
+        self.resultActivated.emit(self.result_at(index))
 
     def append_log(self, text: str) -> None:
         self.log.appendPlainText(text)
@@ -702,7 +827,7 @@ def _table_block(table) -> QWidget:
     layout.addWidget(title)
 
     cols = max([len(table.headers)] + [len(r) for r in table.rows] or [1])
-    widget = QTableWidget(len(table.rows), max(1, cols))
+    widget = _CopyTable(len(table.rows), max(1, cols))
     if table.headers:
         widget.setHorizontalHeaderLabels(
             table.headers + [""] * (cols - len(table.headers)))
@@ -738,6 +863,45 @@ def _table_block(table) -> QWidget:
         note.setStyleSheet("color:#5b666e; font-size:11px;")
         layout.addWidget(note)
     return box
+
+
+class _CopyTable(QTableWidget):
+    """A read-only result table whose cells copy as tab-separated text."""
+
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy_selection()
+            return
+        super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.addAction("Copy", self.copy_selection)
+        menu.addAction("Copy table", self.copy_all)
+        menu.exec(event.globalPos())
+
+    def copy_selection(self) -> None:
+        cells = self.selectedIndexes()
+        if not cells:
+            return
+        rows = sorted({c.row() for c in cells})
+        cols = sorted({c.column() for c in cells})
+        QGuiApplication.clipboard().setText(self._text(rows, cols, header=False))
+
+    def copy_all(self) -> None:
+        QGuiApplication.clipboard().setText(
+            self._text(range(self.rowCount()), range(self.columnCount()), header=True))
+
+    def _text(self, rows, cols, header: bool) -> str:
+        lines = []
+        if header and self.horizontalHeader().isVisible():
+            lines.append("\t".join(
+                (self.horizontalHeaderItem(c).text() if self.horizontalHeaderItem(c) else "")
+                for c in cols))
+        for r in rows:
+            lines.append("\t".join(
+                (self.item(r, c).text() if self.item(r, c) else "") for c in cols))
+        return "\n".join(lines)
 
 
 def _looks_numeric(text: str) -> bool:
