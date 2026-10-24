@@ -87,9 +87,17 @@ Core pipeline, in the order a study sees it:
 
 GUI: `NetworkDocument` owns the `Project` and the `QUndoStack`; the `QUndoCommand`s in
 `commands.py` are the only code that mutates the network (exceptions: `apply_parameters` and
-`reload_script`). Document signals drive the scene and the panels. The scene keeps no model of its
-own: items hold an element id and read the dataclass. Layout lives apart from the electrical model
-in `project.layout` (keyed by element id) and `project.wires` (keyed `"COMP:terminalIndex"`).
+`reload_script`). Document signals drive the scene and the panels; the scene updates
+incrementally (`objectAdded` / `objectRemoved` add or drop one symbol and its wires,
+`structureChanged` only refreshes labels, `wireChanged` re-routes one wire). The scene keeps no
+model of its own: items hold an element id and read the dataclass. Layout lives apart from the
+electrical model in `project.layout` (keyed by element id: position, rotation, bus orientation and
+length, a dragged `label_offset`) and `project.wires` (bends per `"COMP:terminalIndex"`, absolute
+scene points; wires are routed orthogonally through them by `items.orthogonal_route`, leaving
+each terminal along `terminal_direction`). Per component type, `gui/registry.py` holds the palette
+entry, symbol class, id prefix and placement defaults. `gui/clipboard.py` copies selections as
+JSON and pastes them with fresh ids. The property editor updates widgets in place and edits
+several same-type objects at once.
 `MainWindow._run_cases` runs each case through `run_case` (F5 runs the project's cases, or one
 default case per study when there are none); the Calculate menu edits the study's own case (id =
 study key) in `CaseDialog`, which is generated from the `OptionSpec`s and has a "Network
@@ -106,11 +114,10 @@ generically from dataclass fields, so a new field with a default needs no migrat
 level (`z_mode` `ik`/`sk`, `|Z| = U/(sqrt(3) Ik)` or `U^2/Sk` at `acos(cos_phi)`, `U = u_pu * un_kv`);
 `FieldSpec.visible_if` hides the fields of the other modes in the property editor.
 
-Adding a component type currently touches: the dataclass (with `TERMINALS`) and
-`COMPONENT_CLASSES` (`components.py`), an `ElementModel` in `model/elements.py`,
-`Network.validate` for its sanity checks, `ITEM_CLASSES` (`gui/items.py`), `PALETTE_ITEMS` and
-`symbol_icon` (`gui/panels.py`), `_apply_defaults` (`gui/scene.py`), the id prefixes in
-`NetworkDocument.new_id`, and `serialize.auto_layout`. Adding a study only takes a
+Adding a component type touches: the dataclass (with `TERMINALS`) and `COMPONENT_CLASSES`
+(`components.py`), an `ElementModel` in `model/elements.py`, `Network.validate` for its sanity
+checks, a symbol class in `gui/items.py` and its `ElementUI` entry in `gui/registry.py`, and
+`serialize.auto_layout`. Adding a study only takes a
 `study.register(Study(...))` call: the menu, the case dialog, F5, the result tab and the diagram
 badges all follow from it.
 

@@ -175,18 +175,34 @@ stays active to place several; a right-click deactivates it. Each terminal conne
 the nearest free bus (within a small radius), so a series element dropped between two buses ends
 up connected to both, and a load dropped next to a bus attaches to it.
 
-To connect by hand, drag from the terminal (the small circle) to a bus; if you release on empty
-canvas a new bus is created there. `Esc` or a right-click cancels the connection. Double-clicking
-an element takes you to the *Properties* panel. Elements snap to the grid.
+To connect by hand, drag from the terminal (the small circle) to a bus; the bus it would land on
+is marked, and if you release on empty canvas a new bus is created there. `Esc` or a right-click
+cancels the connection. Double-clicking an element takes you to the *Properties* panel. Elements
+snap to the grid.
+
+- **Right-click** any element for its menu: properties, cut, copy, duplicate, rotate (or switch a
+  bus between vertical and horizontal), in service, delete; a bus also offers the Thevenin and
+  short-circuit studies.
+- **Busbars**: select one and drag the handle at either end to make it longer or shorter.
+- **Wires** leave each terminal the way the symbol points and run at right angles. Double-click a
+  wire to add a bend and drag the bend's handle; right-click a wire to add or remove bends.
+- **Labels** stay upright when a symbol is rotated; drag a name to put it somewhere else.
+- **Copy and paste** keep the connections among the copied elements and their expressions; a
+  connection to a bus that was not copied is dropped.
+- **Several elements of one type** selected together are edited together in *Properties*; fields
+  whose values differ show "(several values)". Values outside a field's range are refused.
 
 ### Shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+N` / `Ctrl+O` / `Ctrl+S` | New / open / save (*Save As...* only from the menu) |
+| `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | New / open / save / save as |
+| `Ctrl+Q` | Exit |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / redo |
+| `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+D` | Cut / copy / paste / duplicate (on the canvas) |
 | `Del` | Delete the selection; deleting a bus warns and takes along whatever hangs from it |
 | `Ctrl+A` | Select all |
+| `Esc` | Cancel a connection, or drop the component picked in the Library |
 | `Ctrl+Alt+R` / `Ctrl+Alt+O` | Rotate 90° / switch the bus between vertical and horizontal |
 | `Ctrl` + wheel, `Ctrl++` / `Ctrl+-` | Zoom |
 | `Ctrl+0` / `Ctrl+1` | Fit all / actual size |
@@ -295,7 +311,7 @@ the diagram. No GUI code has to change.
 ## Verification
 
 ```
-python -m pytest                              # 174 tests, a few seconds, the GUI runs offscreen
+python -m pytest                              # 195 tests, a few seconds, the GUI runs offscreen
 python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
@@ -309,7 +325,7 @@ python run_s1_headless.py --a-number 0        # the answer published in the assi
 | `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 50 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, startup |
+| `test_gui.py` | 71 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup |
 | `test_s2.py` | 10 | S2a-S2d from the example projects against the MATLAB solution, A = 80 and A = 0; the external grid from its fault level |
 | `test_s2_thevenin.py` | 2 | Thévenin at bus 7 of S2 for A = 0 and A = 80 |
 
@@ -366,8 +382,5 @@ The full v1 plan is in [`docs/ROADMAP.md`](docs/ROADMAP.md). In short:
 single line-to-ground fault. **For LF:** Newton-Raphson with slack/PV/PQ buses, constant-power
 loads and taps.
 
-**GUI ergonomics:** wires are a single L elbow without editable waypoints and buses have a fixed
-length, so a meshed network like the one in S2 is somewhat awkward to draw; the property form is
-regenerated after each edit and loses focus; `Esc` does not deactivate the palette tool (use a
-right-click); there is no context menu, copy/paste or export; *Save As* and *Exit* have no
-shortcut on Windows.
+**GUI:** there is no export yet (image, PDF, CSV), no table view of all elements and no
+colouring by voltage level; these come in roadmap phase 8.
