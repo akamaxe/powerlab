@@ -15,6 +15,7 @@ from .components import (
     display_name,
     is_node_shunt,
     is_series,
+    unconnected_terminals,
 )
 from .errors import ERROR, INFO, WARNING, Issue, ValidationError
 
@@ -84,10 +85,15 @@ class Network:
     # ------------------------------------------------------------------ #
 
     def active_components(self, exclude: set[str] | None = None) -> list[Any]:
+        """In-service components that are fully wired to in-service buses.
+
+        A component with an unconnected terminal is left out (validation
+        reports it as a warning), so a half-drawn element never blocks a study.
+        """
         skip = exclude or set()
         out = []
         for c in self.components.values():
-            if not c.in_service or c.id in skip:
+            if not c.in_service or c.id in skip or unconnected_terminals(c):
                 continue
             if any(b not in self.buses or not self.buses[b].in_service
                    for b in buses_of(c)):
@@ -100,12 +106,17 @@ class Network:
         return [b.id for b in self.buses.values() if b.in_service]
 
     def series_edges(self, exclude: set[str] | None = None) -> list[tuple[str, str, str]]:
-        """``(comp_id, bus_i, bus_j)`` for every active series branch."""
-        return [
-            (c.id, *buses_of(c))
-            for c in self.active_components(exclude)
-            if is_series(c)
-        ]
+        """``(comp_id, bus_i, bus_j)`` for every active series branch.
+
+        A branch with more than two terminals contributes a star of edges from
+        its first bus to each of the others.
+        """
+        out = []
+        for c in self.active_components(exclude):
+            if is_series(c):
+                bs = buses_of(c)
+                out.extend((c.id, bs[0], b) for b in bs[1:])
+        return out
 
     def shunt_attachments(self, exclude: set[str] | None = None) -> list[tuple[str, str]]:
         """``(comp_id, bus)`` for every active node-shunt component."""
@@ -122,6 +133,10 @@ class Network:
         for comp_id, bi, bj in sorted(self.series_edges(exclude)):
             g.add_edge(bi, bj, key=comp_id, comp_id=comp_id)
         return g
+
+    def islands(self, exclude: set[str] | None = None) -> list[set[str]]:
+        """Groups of in-service buses joined by in-service branches."""
+        return [set(c) for c in nx.connected_components(self.graph(exclude))]
 
     def slack_sources(self) -> list[Source]:
         return [
@@ -169,22 +184,21 @@ class Network:
                         ERROR, "dangling",
                         f"{display_name(c)}: terminal '{attr}' points at bus "
                         f"'{val}', which does not exist.", [c.id]))
-            if is_series(c):
+            missing = unconnected_terminals(c)
+            if missing:
+                where = ("at both ends" if is_series(c) and len(missing) > 1
+                         else f"at '{missing[0]}'" if is_series(c) else "to a bus")
+                issues.append(Issue(
+                    WARNING, "unconnected",
+                    f"{display_name(c)} is not connected {where}, so the studies "
+                    f"ignore it.", [c.id]))
+            elif is_series(c):
                 bs = buses_of(c)
-                if len(bs) < 2:
-                    issues.append(Issue(
-                        ERROR, "unconnected",
-                        f"{display_name(c)} is a series branch but is not "
-                        f"connected at both ends.", [c.id]))
-                elif bs[0] == bs[1]:
+                if len(set(bs)) < len(bs):
                     issues.append(Issue(
                         ERROR, "self_loop",
                         f"{display_name(c)} connects bus '{bs[0]}' to itself.",
                         [c.id]))
-            elif is_node_shunt(c) and not buses_of(c):
-                issues.append(Issue(
-                    ERROR, "unconnected",
-                    f"{display_name(c)} is not connected to a bus.", [c.id]))
 
         # Component-specific sanity
         for c in self.of_type("transformer"):

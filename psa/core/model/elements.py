@@ -1,0 +1,354 @@
+"""Element models: the physics of each component class.
+
+Components are plain data (:mod:`psa.core.components`). Everything that turns
+them into numbers lives here, one :class:`ElementModel` per class, registered
+with :func:`element_model`. Adding a component type means writing its
+dataclass and one model; the per-unit conversion, the base propagation and
+the Y-bus pick it up through :func:`model_for`.
+
+Formulas
+--------
+Transformer, referred to ``referred_side`` (default LV)::
+
+    z_pu = (r_pct + j*x_pct)/100 * (S_base/S_n) * (U_n_side / U_base_side)**2
+
+Line, ``n`` identical lines in parallel, PI equivalent::
+
+    z_1    = (r + jx) * L                 ohm, ONE line
+    y_1    = (g + jb) * L                 S,   ONE line, TOTAL charging
+    z_pu   = z_1 / n / z_base
+    ysh_pu = n * y_1 / 2 * z_base         at EACH end of the PI
+
+Impedance load at its own nominal voltage::
+
+    S      = P/cos_phi * (cos_phi +- j*sin_phi)          MVA
+    y_pu   = conj(S)/S_base * (U_base/U_n)**2
+
+The load admittance is built directly rather than as ``1/Z`` so that a zero
+load degrades to an open circuit instead of dividing by zero.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Callable
+
+from ..components import (
+    Impedance,
+    Line,
+    Load,
+    Shunt,
+    Source,
+    Transformer,
+    display_name,
+)
+from ..errors import WARNING, Issue, ValidationError
+from .stamps import BranchStamp, ConversionStep, Seq, ShuntStamp, SourceStamp
+
+if TYPE_CHECKING:
+    from ..bases import BaseTable
+
+#: Relative tolerance for the "same impedance seen from either side" check.
+REFER_RTOL = 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# Registry
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class StampContext:
+    """What an element model needs to know about the network it is stamped into."""
+
+    bases: BaseTable
+    s_base: float
+    seq: Seq = Seq.POS
+
+
+@dataclass
+class Stamps:
+    """Everything the element models wrote for one sequence."""
+
+    branches: list[BranchStamp] = field(default_factory=list)
+    shunts: list[ShuntStamp] = field(default_factory=list)
+    sources: list[SourceStamp] = field(default_factory=list)
+    trace: list[ConversionStep] = field(default_factory=list)
+    issues: list[Issue] = field(default_factory=list)
+
+
+class ElementModel:
+    """The physics of one component class. Subclasses override what applies."""
+
+    def base_ratio(self, comp: Any, from_bus: str, to_bus: str) -> float:
+        """Base-voltage multiplier when crossing ``comp`` from one bus to another."""
+        return 1.0
+
+    def stamp(self, comp: Any, ctx: StampContext, out: Stamps) -> None:
+        """Append this component's stamps, audit row and issues to ``out``."""
+        raise NotImplementedError
+
+
+ELEMENT_MODELS: dict[type, ElementModel] = {}
+
+
+def element_model(cls: type) -> Callable[[type], type]:
+    """Class decorator registering an :class:`ElementModel` for ``cls``."""
+
+    def register(model_cls: type) -> type:
+        ELEMENT_MODELS[cls] = model_cls()
+        return model_cls
+
+    return register
+
+
+def model_for(comp: Any) -> ElementModel:
+    for klass in type(comp).__mro__:
+        model = ELEMENT_MODELS.get(klass)
+        if model is not None:
+            return model
+    raise ValidationError(
+        f"{display_name(comp)}: no element model for component type "
+        f"'{type(comp).__name__}'.", [comp.id])
+
+
+def base_ratio(comp: Any, from_bus: str, to_bus: str) -> float:
+    return model_for(comp).base_ratio(comp, from_bus, to_bus)
+
+
+# --------------------------------------------------------------------------- #
+# Conversions (also used directly by tests and reports)
+# --------------------------------------------------------------------------- #
+
+
+def load_power_mva(load: Load) -> complex:
+    """Complex power of an impedance load, ``lag`` giving inductive (+jQ)."""
+    cos_phi = load.cos_phi
+    if not 0.0 < cos_phi <= 1.0:
+        raise ValidationError(
+            f"{display_name(load)}: cos phi must be in (0, 1], got {cos_phi}.",
+            [load.id])
+    sin_phi = math.sqrt(max(0.0, 1.0 - cos_phi * cos_phi))
+    sign = 1.0 if load.pf_sign == "lag" else -1.0
+    return load.p_mw / cos_phi * complex(cos_phi, sign * sin_phi)
+
+
+def transformer_z_pu(tf: Transformer, bases: BaseTable, s_base: float
+                     ) -> tuple[complex, ConversionStep]:
+    """Series impedance in per unit, plus the audit row."""
+    if tf.sn_mva <= 0:
+        raise ValidationError(
+            f"{display_name(tf)}: rated power must be positive.", [tf.id])
+
+    def _referred(side: str) -> tuple[complex, str, float]:
+        if side == "lv":
+            bus, u_n = tf.bus_lv, tf.u2n_kv
+        else:
+            bus, u_n = tf.bus_hv, tf.u1n_kv
+        u_b = bases.u(bus)
+        z = complex(tf.r_pct, tf.x_pct) / 100.0 * (s_base / tf.sn_mva) \
+            * (u_n / u_b) ** 2
+        return z, bus, u_b
+
+    z_pu, bus, u_b = _referred(tf.referred_side)
+    other = "hv" if tf.referred_side == "lv" else "lv"
+    note = ""
+    try:
+        z_other, _, _ = _referred(other)
+    except KeyError:
+        z_other = z_pu
+    if abs(z_other - z_pu) > REFER_RTOL * max(abs(z_other), abs(z_pu), 1e-30):
+        note = (f"referred to {tf.referred_side.upper()}; the {other.upper()} "
+                f"side would give {z_other:.6g} pu (pinned bases disagree)")
+
+    step = ConversionStep(
+        comp_id=tf.id, name=display_name(tf), comp_type="transformer",
+        bus_ref=bus, u_base_kv=u_b, z_base_ohm=bases.z(bus),
+        u_nominal_kv=tf.u2n_kv if tf.referred_side == "lv" else tf.u1n_kv,
+        base_factor=((tf.u2n_kv if tf.referred_side == "lv" else tf.u1n_kv) / u_b) ** 2,
+        z_pu=z_pu, z_ohm=z_pu * bases.z(bus), note=note,
+    )
+    return z_pu, step
+
+
+def line_pu(ln: Line, bases: BaseTable) -> tuple[complex, complex, ConversionStep]:
+    """``(z_pu, ysh_pu_per_end, step)`` for a PI line."""
+    u_from, u_to = bases.u(ln.bus_from), bases.u(ln.bus_to)
+    if abs(u_from - u_to) > 1e-9 * max(u_from, u_to):
+        raise ValidationError(
+            f"{display_name(ln)} spans a change of voltage base "
+            f"({u_from:g} kV vs {u_to:g} kV). A line cannot change the base; "
+            f"use a transformer.", [ln.id])
+    n = max(1, int(ln.n_parallel))
+    z_base = bases.z(ln.bus_from)
+    z_one = complex(ln.r_ohm_per_km, ln.x_ohm_per_km) * ln.length_km
+    y_one = complex(ln.g_s_per_km, ln.b_s_per_km) * ln.length_km
+    z_pu = z_one / n / z_base
+    ysh_pu = n * y_one / 2.0 * z_base
+    step = ConversionStep(
+        comp_id=ln.id, name=display_name(ln), comp_type="line",
+        bus_ref=ln.bus_from, u_base_kv=u_from, z_base_ohm=z_base,
+        z_pu=z_pu, ysh_pu=ysh_pu, z_ohm=z_one / n,
+        note=f"{n} parallel line(s), {ln.length_km:g} km" if n > 1
+             else f"{ln.length_km:g} km",
+    )
+    return z_pu, ysh_pu, step
+
+
+def load_y_pu(ld: Load, bases: BaseTable, s_base: float
+              ) -> tuple[complex, ConversionStep]:
+    """Shunt admittance in per unit, plus the audit row."""
+    u_b = bases.u(ld.bus)
+    u_n = ld.u_nominal_kv or u_b
+    s_mva = load_power_mva(ld)
+    factor = (u_b / u_n) ** 2
+    y_pu = s_mva.conjugate() / s_base * factor
+    z_pu = (1.0 / y_pu) if y_pu != 0 else None
+    step = ConversionStep(
+        comp_id=ld.id, name=display_name(ld), comp_type="load",
+        bus_ref=ld.bus, u_base_kv=u_b, z_base_ohm=bases.z(ld.bus),
+        u_nominal_kv=u_n, base_factor=factor,
+        y_pu=y_pu, z_pu=z_pu, s_mva=s_mva,
+        z_ohm=(u_n * u_n / s_mva.conjugate()) if s_mva != 0 else None,
+    )
+    return y_pu, step
+
+
+def shunt_y_pu(sh: Shunt, bases: BaseTable, s_base: float
+               ) -> tuple[complex, ConversionStep]:
+    u_b = bases.u(sh.bus)
+    u_n = sh.u_nominal_kv or u_b
+    factor = (u_b / u_n) ** 2
+    y_pu = 1j * sh.q_mvar / s_base * factor
+    step = ConversionStep(
+        comp_id=sh.id, name=display_name(sh), comp_type="shunt",
+        bus_ref=sh.bus, u_base_kv=u_b, z_base_ohm=bases.z(sh.bus),
+        u_nominal_kv=u_n, base_factor=factor, y_pu=y_pu,
+        s_mva=complex(0.0, -sh.q_mvar),
+        note="capacitive" if sh.q_mvar >= 0 else "inductive (reactor)",
+    )
+    return y_pu, step
+
+
+def _require_positive_sequence(comp: Any, ctx: StampContext) -> None:
+    if ctx.seq != Seq.POS:
+        raise ValidationError(
+            f"{display_name(comp)}: only the positive-sequence model exists so "
+            f"far.", [comp.id])
+
+
+# --------------------------------------------------------------------------- #
+# Models
+# --------------------------------------------------------------------------- #
+
+
+@element_model(Transformer)
+class TransformerModel(ElementModel):
+    def base_ratio(self, comp: Transformer, from_bus: str, to_bus: str) -> float:
+        if from_bus == comp.bus_hv:
+            return comp.u2n_kv / comp.u1n_kv
+        return comp.u1n_kv / comp.u2n_kv
+
+    def stamp(self, comp: Transformer, ctx: StampContext, out: Stamps) -> None:
+        _require_positive_sequence(comp, ctx)
+        z_pu, step = transformer_z_pu(comp, ctx.bases, ctx.s_base)
+        if z_pu == 0:
+            raise ValidationError(
+                f"{step.name} has zero impedance (r = x = 0 %), which is a "
+                f"short circuit between its buses.", [comp.id])
+        out.branches.append(BranchStamp(comp.id, comp.bus_hv, comp.bus_lv, z=z_pu))
+        out.trace.append(step)
+        if step.note:
+            out.issues.append(Issue(
+                WARNING, "refer_side", f"{step.name}: {step.note}", [comp.id]))
+        if comp.tap != 1.0:
+            out.issues.append(Issue(
+                WARNING, "off_nominal_tap",
+                f"{step.name} has an off-nominal tap ({comp.tap:g}); the S1 "
+                f"studies model it as a plain series impedance and the "
+                f"det(F) = 1 reciprocity check no longer applies.", [comp.id]))
+
+
+@element_model(Line)
+class LineModel(ElementModel):
+    def stamp(self, comp: Line, ctx: StampContext, out: Stamps) -> None:
+        _require_positive_sequence(comp, ctx)
+        z_pu, ysh_pu, step = line_pu(comp, ctx.bases)
+        if z_pu == 0:
+            raise ValidationError(
+                f"{step.name} has zero series impedance (length "
+                f"{comp.length_km:g} km, r + jx = {comp.r_ohm_per_km:g} + "
+                f"j{comp.x_ohm_per_km:g} ohm/km), which is a short circuit "
+                f"between its buses.", [comp.id])
+        out.branches.append(BranchStamp(comp.id, comp.bus_from, comp.bus_to,
+                                        z=z_pu, ysh_i=ysh_pu, ysh_j=ysh_pu))
+        out.trace.append(step)
+
+
+@element_model(Load)
+class LoadModel(ElementModel):
+    def stamp(self, comp: Load, ctx: StampContext, out: Stamps) -> None:
+        _require_positive_sequence(comp, ctx)
+        y_pu, step = load_y_pu(comp, ctx.bases, ctx.s_base)
+        out.shunts.append(ShuntStamp(comp.id, comp.bus, y_pu, "load"))
+        out.trace.append(step)
+        if comp.model != "constant_impedance":
+            out.issues.append(Issue(
+                WARNING, "load_model",
+                f"{step.name} is set to '{comp.model}', but these studies "
+                f"are linear and model every load as a constant impedance "
+                f"at its nominal voltage.", [comp.id]))
+
+
+@element_model(Shunt)
+class ShuntModel(ElementModel):
+    def stamp(self, comp: Shunt, ctx: StampContext, out: Stamps) -> None:
+        _require_positive_sequence(comp, ctx)
+        y_pu, step = shunt_y_pu(comp, ctx.bases, ctx.s_base)
+        out.shunts.append(ShuntStamp(comp.id, comp.bus, y_pu, "shunt"))
+        out.trace.append(step)
+
+
+@element_model(Source)
+class SourceModel(ElementModel):
+    def stamp(self, comp: Source, ctx: StampContext, out: Stamps) -> None:
+        _require_positive_sequence(comp, ctx)
+        bus = comp.bus
+        z_base = ctx.bases.z(bus)
+        z_th_pu = complex(comp.z_th_ohm) / z_base
+        e = comp.u_pu * complex(math.cos(math.radians(comp.theta_deg)),
+                                math.sin(math.radians(comp.theta_deg)))
+        out.sources.append(SourceStamp(comp.id, bus, e, z_th_pu, comp.is_slack))
+        out.trace.append(ConversionStep(
+            comp_id=comp.id, name=display_name(comp), comp_type="source",
+            bus_ref=bus, u_base_kv=ctx.bases.u(bus), z_base_ohm=z_base,
+            z_pu=z_th_pu if z_th_pu != 0 else None,
+            note="ideal voltage source" if z_th_pu == 0
+                 else "Thevenin equivalent",
+        ))
+
+
+@element_model(Impedance)
+class ImpedanceModel(ElementModel):
+    def stamp(self, comp: Impedance, ctx: StampContext, out: Stamps) -> None:
+        _require_positive_sequence(comp, ctx)
+        bus = comp.bus_from
+        z_base = ctx.bases.z(bus)
+        z_raw = complex(comp.r, comp.x)
+        z_pu = z_raw if comp.in_pu else z_raw / z_base
+        if z_pu == 0:
+            raise ValidationError(
+                f"{display_name(comp)} has zero impedance.", [comp.id])
+        step = ConversionStep(
+            comp_id=comp.id, name=display_name(comp), comp_type="impedance",
+            bus_ref=bus, u_base_kv=ctx.bases.u(bus), z_base_ohm=z_base,
+            z_pu=z_pu, z_ohm=z_pu * z_base,
+        )
+        if comp.bus_to:
+            out.branches.append(BranchStamp(comp.id, comp.bus_from, comp.bus_to,
+                                            z=z_pu))
+        else:
+            out.shunts.append(ShuntStamp(comp.id, bus, 1.0 / z_pu, "impedance"))
+            step.y_pu = 1.0 / z_pu
+        out.trace.append(step)

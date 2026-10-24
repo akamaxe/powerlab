@@ -2,7 +2,8 @@
 
 One global ``S_base``, one ``U_base`` per galvanically separated voltage zone.
 Starting from the reference bus, the base voltage is carried across every
-series branch: unity for a line, the **rated** turns ratio for a transformer.
+series branch by its element model's ``base_ratio``: unity for a line, the
+**rated** turns ratio for a transformer.
 
 The off-nominal ``tap`` is deliberately *not* applied here. Bases follow rated
 ratios only (the standard convention), which keeps them independent of tap
@@ -15,7 +16,7 @@ import math
 from collections import deque
 from dataclasses import dataclass, field
 
-from .components import Bus, Transformer, buses_of, display_name, is_series
+from .components import buses_of, is_series
 from .errors import ERROR, Issue, BaseConflict
 from .network import Network
 
@@ -62,15 +63,6 @@ class BaseTable:
         return out
 
 
-def _ratio(comp, from_bus: str) -> float:
-    """Base-voltage multiplier when travelling across ``comp`` away from ``from_bus``."""
-    if isinstance(comp, Transformer):
-        if from_bus == comp.bus_hv:
-            return comp.u2n_kv / comp.u1n_kv
-        return comp.u1n_kv / comp.u2n_kv
-    return 1.0
-
-
 def propagate_bases(net: Network) -> BaseTable:
     """Derive ``U_base``, ``Z_base`` and ``I_base`` for every bus.
 
@@ -80,6 +72,9 @@ def propagate_bases(net: Network) -> BaseTable:
     :class:`~psa.core.errors.BaseConflict` so the user sees *which* transformer
     around the loop is inconsistent.
     """
+    # Imported here: the element models import this module's BaseTable.
+    from .model.elements import base_ratio
+
     table = BaseTable(s_base_mva=net.s_base_mva)
 
     # Adjacency over active series branches, ordered by component id so the
@@ -92,12 +87,11 @@ def propagate_bases(net: Network) -> BaseTable:
         if not is_series(comp):
             continue
         bs = buses_of(comp)
-        if len(bs) != 2:
-            continue
-        bi, bj = bs
-        if bi in adj and bj in adj:
-            adj[bi].append((bj, comp.id, comp))
-            adj[bj].append((bi, comp.id, comp))
+        for bj in bs[1:]:      # a star from the first terminal's bus
+            bi = bs[0]
+            if bi in adj and bj in adj:
+                adj[bi].append((bj, comp.id, comp))
+                adj[bj].append((bi, comp.id, comp))
 
     seeds: list[tuple[str, float]] = []
     if net.base_ref_bus in adj and net.base_ref_u_kv > 0:
@@ -116,7 +110,7 @@ def propagate_bases(net: Network) -> BaseTable:
         u_bus = queue.popleft()
         u_val = table.u_base_kv[u_bus]
         for v_bus, comp_id, comp in adj[u_bus]:
-            cand = u_val * _ratio(comp, u_bus)
+            cand = u_val * base_ratio(comp, u_bus, v_bus)
             if v_bus not in table.u_base_kv:
                 table.u_base_kv[v_bus] = cand
                 queue.append(v_bus)

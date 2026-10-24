@@ -6,8 +6,11 @@ Design rules that the rest of the package depends on:
   project's ``layout`` section) and no expressions (those live in
   :mod:`psa.core.params`), so the core stays a pure, headlessly testable
   physics library.
-* Bus references are plain string ids held in the attributes named by
-  ``BUS_FIELDS``. That is the single source of truth for connectivity.
+* Bus references are plain string ids held in the attributes that each class
+  lists in ``TERMINALS``. That is the single source of truth for
+  connectivity; ``BUS_FIELDS`` is derived from it, in the same order.
+* The physics of each class (per-unit conversion, admittance stamps) lives in
+  :mod:`psa.core.model.elements`, not here.
 * ``FIELDS`` drives the GUI property editor, so adding a parameter is a
   one-line change that automatically shows up in the UI.
 """
@@ -38,6 +41,15 @@ class FieldSpec:
     parametric: bool = True      # may be bound to an expression
 
 
+@dataclass(frozen=True)
+class Terminal:
+    """One connection point of a component: the field that holds its bus id."""
+
+    field: str
+    role: str = "bus"            # bus | hv | lv | from | to
+    optional: bool = False       # may stay empty, e.g. an impedance to ground
+
+
 _COMMON = (
     FieldSpec("name", "Name", "str", tooltip="Label shown on the diagram",
               parametric=False),
@@ -63,8 +75,8 @@ class Bus:
     u_base_kv: float | None = None       # None => propagated, float => pinned
 
     TYPE: ClassVar[str] = "bus"
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = ()
     BUS_FIELDS: ClassVar[tuple[str, ...]] = ()
-    IS_SERIES: ClassVar[bool] = False
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("kind", "Kind", "choice", choices=("busbar", "junction"),
                   tooltip="Junctions are drawn as a small dot instead of a bar",
@@ -89,8 +101,8 @@ class Source:
     is_slack: bool = True
 
     TYPE: ClassVar[str] = "source"
-    BUS_FIELDS: ClassVar[tuple[str, ...]] = ("bus",)
-    IS_SERIES: ClassVar[bool] = False
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus", "Bus", "bus", parametric=False),
         FieldSpec("u_pu", "U", "float", "pu", minimum=0.0),
@@ -128,8 +140,9 @@ class Transformer:
     referred_side: str = "lv"            # lv | hv
 
     TYPE: ClassVar[str] = "transformer"
-    BUS_FIELDS: ClassVar[tuple[str, ...]] = ("bus_hv", "bus_lv")
-    IS_SERIES: ClassVar[bool] = True
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (
+        Terminal("bus_hv", "hv"), Terminal("bus_lv", "lv"))
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus_hv", "HV bus", "bus", parametric=False),
         FieldSpec("bus_lv", "LV bus", "bus", parametric=False),
@@ -168,8 +181,9 @@ class Line:
     n_parallel: int = 1
 
     TYPE: ClassVar[str] = "line"
-    BUS_FIELDS: ClassVar[tuple[str, ...]] = ("bus_from", "bus_to")
-    IS_SERIES: ClassVar[bool] = True
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (
+        Terminal("bus_from", "from"), Terminal("bus_to", "to"))
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus_from", "From bus", "bus", parametric=False),
         FieldSpec("bus_to", "To bus", "bus", parametric=False),
@@ -198,8 +212,8 @@ class Load:
     model: str = "constant_impedance"    # constant_power reserved for LF
 
     TYPE: ClassVar[str] = "load"
-    BUS_FIELDS: ClassVar[tuple[str, ...]] = ("bus",)
-    IS_SERIES: ClassVar[bool] = False
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus", "Bus", "bus", parametric=False),
         FieldSpec("p_mw", "P", "float", "MW"),
@@ -227,8 +241,8 @@ class Shunt:
     u_nominal_kv: float | None = None
 
     TYPE: ClassVar[str] = "shunt"
-    BUS_FIELDS: ClassVar[tuple[str, ...]] = ("bus",)
-    IS_SERIES: ClassVar[bool] = False
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus", "Bus", "bus", parametric=False),
         FieldSpec("q_mvar", "Q", "float", "MVAr",
@@ -252,8 +266,9 @@ class Impedance:
     in_pu: bool = False                  # False means ohm at the bus_from base
 
     TYPE: ClassVar[str] = "impedance"
-    BUS_FIELDS: ClassVar[tuple[str, ...]] = ("bus_from", "bus_to")
-    IS_SERIES: ClassVar[bool] = True     # only when bus_to is set, see is_series()
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (
+        Terminal("bus_from", "from"), Terminal("bus_to", "to", optional=True))
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus_from", "From bus", "bus", parametric=False),
         FieldSpec("bus_to", "To bus", "bus", parametric=False,
@@ -276,10 +291,15 @@ TYPE_REGISTRY: dict[str, type] = {c.TYPE: c for c in COMPONENT_CLASSES}
 
 
 def is_series(comp: Any) -> bool:
-    """True when the component is a two-terminal series branch."""
-    if isinstance(comp, Impedance):
-        return bool(comp.bus_to)
-    return bool(getattr(comp, "IS_SERIES", False))
+    """True when the component is a branch between two or more buses.
+
+    A required terminal counts even while it is unconnected (a line is a
+    branch before it is wired); an optional one only once it names a bus, so
+    an impedance without ``bus_to`` is a shunt to ground.
+    """
+    count = sum(1 for t in getattr(comp, "TERMINALS", ())
+                if not t.optional or getattr(comp, t.field, None))
+    return count >= 2
 
 
 def is_node_shunt(comp: Any) -> bool:
@@ -287,6 +307,12 @@ def is_node_shunt(comp: Any) -> bool:
     if isinstance(comp, Bus):
         return False
     return not is_series(comp)
+
+
+def unconnected_terminals(comp: Any) -> list[str]:
+    """Required terminal fields that do not name a bus yet."""
+    return [t.field for t in getattr(comp, "TERMINALS", ())
+            if not t.optional and not getattr(comp, t.field, None)]
 
 
 def buses_of(comp: Any) -> list[str]:

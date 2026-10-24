@@ -174,8 +174,9 @@ class NetworkDocument(QObject):
         return obj, layout
 
     def _apply_set_field(self, obj_id: str, field: str, value) -> None:
-        setattr(self.network.get(obj_id), field, value)
-        if field in ("bus", "bus_from", "bus_to", "bus_hv", "bus_lv"):
+        obj = self.network.get(obj_id)
+        setattr(obj, field, value)
+        if field in getattr(obj, "BUS_FIELDS", ()):
             self.connectivityChanged.emit(obj_id)
         else:
             self.componentChanged.emit(obj_id)
