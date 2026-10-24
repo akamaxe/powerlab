@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsView,
+    QMenu,
 )
 
 from ..core.components import TYPE_REGISTRY, buses_of, is_series
@@ -32,6 +33,7 @@ class SchematicScene(QGraphicsScene):
     selectionInfoChanged = Signal(str)      # id of the last-pressed object
     statusMessage = Signal(str)
     requestProperties = Signal(str)
+    studyAtBusRequested = Signal(str, str)  # study key, bus id
 
     def __init__(self, document, parent=None):
         # Parent the scene to the document (a QObject) when no parent is given.
@@ -364,6 +366,24 @@ class SchematicScene(QGraphicsScene):
         doc.undo.push(Connect(doc, comp_item.comp_id, terminal.field_name, bus_id))
         doc.undo.endMacro()
 
+    def contextMenuEvent(self, event):
+        item = self.itemAt(event.scenePos(), QTransform())
+        while item is not None and not isinstance(item, ComponentItem):
+            item = item.parentItem()
+        if not isinstance(item, BusItem):
+            super().contextMenuEvent(event)
+            return
+        menu = QMenu()
+        for key, label in (("thevenin", "Thevenin equivalent here"),
+                           ("short_circuit", "Three-phase short circuit here")):
+            menu.addAction(label).triggered.connect(
+                lambda _=False, k=key, b=item.comp_id: self.studyAtBusRequested.emit(k, b))
+        menu.addSeparator()
+        menu.addAction("Properties").triggered.connect(
+            lambda _=False, b=item.comp_id: self.requestProperties.emit(b))
+        menu.exec(event.screenPos())
+        event.accept()
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self._connecting is not None:
             self._cancel_connection()
@@ -482,6 +502,9 @@ class SchematicScene(QGraphicsScene):
         if badge.slot == "bus":
             half = getattr(item, "length", 0.0) / 2.0
             badge.setPos(anchor.x() - w / 2.0, anchor.y() - half - 26 - h)
+        elif badge.slot == "branch" and round(item.rotation()) % 180 == 90:
+            # A vertical branch: beside it, clear of the buses above and below.
+            badge.setPos(anchor.x() + 34.0, anchor.y() - h / 2.0)
         elif badge.slot == "branch":
             # Below the name AND the detail line, both of which live in the
             # branch's own label lane.

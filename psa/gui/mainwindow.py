@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         self.scene.requestProperties.connect(self._focus_properties)
         self.scene.statusMessage.connect(self.status.showMessage)
         self.scene.selectionChanged.connect(self._on_selection_changed)
+        self.scene.studyAtBusRequested.connect(self.run_study_at_bus)
         self.view.toolConsumed.connect(self.palette.clear_selection)
         self.palette.toolPicked.connect(self.view.arm_tool)
         self.variables.loadScriptRequested.connect(self.link_variable_script)
@@ -296,6 +297,7 @@ class MainWindow(QMainWindow):
         self.scene.requestProperties.connect(self._focus_properties)
         self.scene.statusMessage.connect(self.status.showMessage)
         self.scene.selectionChanged.connect(self._on_selection_changed)
+        self.scene.studyAtBusRequested.connect(self.run_study_at_bus)
 
         self.properties.document = doc
         self.properties.bind(None)
@@ -609,6 +611,16 @@ class MainWindow(QMainWindow):
             self._store_case(edited)
             case = edited
         self._run_cases([case])
+
+    def run_study_at_bus(self, key: str, bus_id: str) -> None:
+        """Bus context menu: run a study at that bus now, without saving a case."""
+        study = STUDY_REGISTRY[key]
+        bus = self.document.network.buses.get(bus_id)
+        label = (bus.name or bus_id) if bus else bus_id
+        options = study.default_options(self.document.network)
+        options["bus"] = bus_id
+        self._run_cases([Case(id=f"{key}@{bus_id}", study=key,
+                              title=f"{study.title} at bus {label}", options=options)])
 
     def run_all_studies(self) -> None:
         """F5: every case of the project, or every study when it has none."""

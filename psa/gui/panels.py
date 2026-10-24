@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import QMimeData, QPointF, QSize, Qt, Signal
 from PySide6.QtGui import QDrag, QGuiApplication, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -36,7 +38,8 @@ from .items import ITEM_CLASSES, make_item
 
 PALETTE_ITEMS = [
     ("bus", "Bus", "Busbar or node. Everything connects to a bus."),
-    ("source", "Source / Grid", "Slack voltage source, optionally behind Zth."),
+    ("source", "External grid", "Voltage source behind a Thevenin impedance, given "
+                                 "in ohm or by its fault level (Ik or Sk)."),
     ("transformer", "Transformer", "Two-winding, series reactance."),
     ("line", "Line / Cable", "PI model, n identical lines in parallel."),
     ("load", "Load", "Power drawn at a nominal voltage (constant impedance)."),
@@ -234,6 +237,8 @@ class PropertyEditor(QScrollArea):
         self._building = True
         scope = self.document.params.values()
         for spec in field_specs(obj):
+            if not spec.is_visible(obj):
+                continue
             widget, hint = self._make_widget(obj, spec, scope)
             if widget is None:
                 continue
@@ -794,7 +799,8 @@ class ResultsPanel(QTabWidget):
         layout.setSpacing(9)
 
         if res.headline:
-            head = QLabel(res.headline.replace("\n", "<br>"))
+            # Escaped: "0.9952 pu < -0.5345 deg" would otherwise read as a tag.
+            head = QLabel(html.escape(res.headline).replace("\n", "<br>"))
             head.setObjectName("headline")
             head.setTextFormat(Qt.TextFormat.RichText)
             head.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)

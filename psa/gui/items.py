@@ -561,7 +561,12 @@ class SourceItem(ComponentItem):
         c = self.component
         if c is None:
             return ""
-        z = "" if c.z_th_ohm == 0 else "  Zth"
+        if c.z_mode == "ik":
+            z = f"  Ik {c.ik_ka:g} kA"
+        elif c.z_mode == "sk":
+            z = f"  Sk {c.sk_mva:g} MVA"
+        else:
+            z = "" if c.z_th_ohm == 0 else "  Zth"
         return f"{c.u_pu:g} pu < {c.theta_deg:g} deg{z}"
 
     def boundingRect(self) -> QRectF:

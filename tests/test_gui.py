@@ -651,6 +651,59 @@ class StudyCases(unittest.TestCase):
         win.close()
 
 
+class GridStudies(unittest.TestCase):
+    """The S2 example in the window: fault-level fields and studies at a bus."""
+
+    S2 = ROOT / "examples" / "s2_grid.psn"
+
+    def test_external_grid_shows_only_the_fields_of_its_mode(self):
+        doc = NetworkDocument.open(self.S2, as_copy=True)
+        from psa.gui.panels import PropertyEditor
+
+        editor = PropertyEditor(doc)
+        editor.bind("GRID")
+        self.assertIn("ik_ka", editor._widgets)
+        self.assertNotIn("z_th_ohm", editor._widgets)
+        doc.undo.push(SetField(doc, "GRID", "z_mode", "z_ohm"))
+        editor.bind("GRID")
+        self.assertIn("z_th_ohm", editor._widgets)
+        self.assertNotIn("ik_ka", editor._widgets)
+        editor.deleteLater()
+
+    def test_running_the_s2_cases_annotates_the_faulted_bus(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = NetworkDocument.open(self.S2, as_copy=True)
+        win = MainWindow(doc)
+        win.run_all_studies()
+        titles = [win.results.tabText(i) for i in range(win.results.count())]
+        self.assertTrue(any(t.startswith("S2a") for t in titles), titles)
+        self.assertTrue(any(t.startswith("S2c") for t in titles), titles)
+        win.results.setCurrentIndex(2)                  # S2c, the short circuit
+        badges = {b.target: b for b in win.scene._overlay}
+        self.assertIn("b7", badges)
+        self.assertTrue(badges["b7"].lines[0].startswith("I_f 0.7584 kA"))
+        from PySide6.QtWidgets import QLabel
+
+        head = win.results.widget(2).findChild(QLabel, "headline")
+        self.assertIn("kA &lt; -25.3911 deg", head.text(),
+                      "the '<' of a phasor must not be read as an HTML tag")
+        doc.undo.setClean()
+        win.close()
+
+    def test_a_study_from_the_bus_context_menu_leaves_the_cases_alone(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = NetworkDocument.open(self.S2, as_copy=True)
+        cases_before = [c.id for c in doc.project.cases]
+        win = MainWindow(doc)
+        win.run_study_at_bus("thevenin", "b4")
+        self.assertTrue(win.results.tabText(0).startswith("Thevenin equivalent at bus 4"))
+        self.assertEqual([c.id for c in doc.project.cases], cases_before)
+        self.assertFalse(doc.is_dirty)
+        win.close()
+
+
 if __name__ == "__main__":
     unittest.main()
 
