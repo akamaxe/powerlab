@@ -346,3 +346,8 @@ def run_all(net: Network, opts: dict | None = None) -> list[Result]:
     for study in STUDY_REGISTRY.values():
         out.append(study(net, opts, pu))
     return out
+
+
+# The network studies (Y-bus, linear voltages, Thevenin, short circuit) live in
+# their own modules and register themselves on import.
+from . import studies  # noqa: E402,F401

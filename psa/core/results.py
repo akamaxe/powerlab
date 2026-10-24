@@ -112,6 +112,8 @@ class Result:
     #: Per-component values, ``{comp_id: {"i_from": Quantity, ...}}``.
     elements: dict[str, dict[str, Quantity]] = field(default_factory=dict)
     matrices: dict[str, LabeledMatrix] = field(default_factory=dict)
+    #: Non-numeric facts the annotations need, e.g. ``{"fault_bus": "b7"}``.
+    info: dict[str, str] = field(default_factory=dict)
     #: The case that produced it, empty for a bare study run.
     case_id: str = ""
 

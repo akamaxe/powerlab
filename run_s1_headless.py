@@ -21,6 +21,9 @@ from psa.core.perunit import to_per_unit
 from psa.core.serialize import load
 from psa.core.study import STUDY_REGISTRY
 
+#: What this runner prints when no --study is given: the S1 report.
+S1_STUDIES = ("model", "s1a", "s1b", "s1c")
+
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
@@ -65,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         for i in issues:
             print(f"  {i}")
 
-    keys = args.study or list(STUDY_REGISTRY)
+    keys = args.study or list(S1_STUDIES)
     try:
         pu = to_per_unit(net)
         # The ports and buses chosen in the GUI are saved per study; use them.

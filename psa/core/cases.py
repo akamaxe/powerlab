@@ -39,7 +39,7 @@ class Case:
         out: dict[str, Any] = {"id": self.id, "study": self.study}
         if self.title:
             out["title"] = self.title
-        out["options"] = dict(self.options)
+        out["options"] = {k: _encode_option(v) for k, v in self.options.items()}
         if self.overrides:
             out["overrides"] = dict(self.overrides)
         if self.exclude:
@@ -52,7 +52,7 @@ class Case:
             id=str(raw["id"]),
             study=str(raw.get("study") or raw["id"]),
             title=str(raw.get("title") or ""),
-            options=dict(raw.get("options") or {}),
+            options={k: _decode_option(v) for k, v in (raw.get("options") or {}).items()},
             overrides={str(k): str(v) for k, v in (raw.get("overrides") or {}).items()},
             exclude=[str(x) for x in (raw.get("exclude") or [])],
         )
@@ -61,6 +61,19 @@ class Case:
     def is_variant(self) -> bool:
         """True when the case changes the network, not just the options."""
         return bool(self.overrides or self.exclude)
+
+
+def _encode_option(value: Any) -> Any:
+    """JSON has no complex numbers: write them as ``{"re": ..., "im": ...}``."""
+    if isinstance(value, complex):
+        return {"re": value.real, "im": value.imag}
+    return value
+
+
+def _decode_option(value: Any) -> Any:
+    if isinstance(value, dict) and set(value) == {"re", "im"}:
+        return complex(float(value["re"]), float(value["im"]))
+    return value
 
 
 def prepare_network(net: Network, case: Case,
