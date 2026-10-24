@@ -907,6 +907,104 @@ class Clipboard(unittest.TestCase):
         win.close()
 
 
+def _mouse(kind: str, pos, button=Qt.MouseButton.LeftButton):
+    """A scene mouse event of ``kind`` (press, move, release, double) at ``pos``."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QGraphicsSceneMouseEvent
+
+    types = {"press": QEvent.Type.GraphicsSceneMousePress,
+             "move": QEvent.Type.GraphicsSceneMouseMove,
+             "release": QEvent.Type.GraphicsSceneMouseRelease,
+             "double": QEvent.Type.GraphicsSceneMouseDoubleClick}
+    event = QGraphicsSceneMouseEvent(types[kind])
+    event.setScenePos(pos)
+    event.setButton(button)
+    return event
+
+
+class WiresAndBusbars(unittest.TestCase):
+    def test_orthogonal_route_through_bends(self):
+        from psa.gui.items import orthogonal_route
+
+        pts = orthogonal_route(QPointF(0, 0), True, [QPointF(50, 30)], QPointF(100, 30))
+        self.assertEqual([(p.x(), p.y()) for p in pts],
+                         [(0, 0), (50, 0), (50, 30), (100, 30)])
+        pts = orthogonal_route(QPointF(0, 0), False, [], QPointF(40, 60))
+        self.assertEqual([(p.x(), p.y()) for p in pts], [(0, 0), (0, 60), (40, 60)])
+
+    def test_a_rotated_terminal_points_the_way_the_symbol_does(self):
+        scene = SchematicScene(s1_document())
+        line = scene.item_for("LIcd")
+        self.assertAlmostEqual(line.terminal_direction(0).x(), -1.0)
+        line.setRotation(90)
+        d = line.terminal_direction(0)
+        self.assertAlmostEqual(d.x(), 0.0, places=9)
+        self.assertAlmostEqual(d.y(), -1.0, places=9)
+
+    def test_dragging_a_bus_handle_resizes_it_with_undo(self):
+        doc = s1_document()
+        scene = SchematicScene(doc)
+        bus = scene.item_for("bus_b")
+        bus.setSelected(True)
+        handle = bus.handles[1]                      # the lower end of a vertical bar
+        self.assertTrue(handle.isVisible())
+        top_before = bus.mapToScene(bus.endpoints()[0]).y()
+        start = handle.scenePos()
+        handle.mousePressEvent(_mouse("press", start))
+        handle.mouseMoveEvent(_mouse("move", QPointF(start.x(), start.y() + 43)))
+        handle.mouseReleaseEvent(_mouse("release", QPointF(start.x(), start.y() + 43)))
+        self.assertEqual(bus.length, 100.0, "60 + 43 rounded to 20-unit steps")
+        self.assertAlmostEqual(bus.mapToScene(bus.endpoints()[0]).y(), top_before,
+                               msg="the other end stays put")
+        self.assertEqual(doc.project.layout["bus_b"]["length"], 100.0)
+        doc.undo.undo()
+        self.assertEqual(bus.length, 60.0)
+        self.assertEqual(doc.project.layout["bus_b"]["length"], 60)
+
+    def test_wire_bends_are_added_moved_and_removed_with_undo(self):
+        doc = s1_document()
+        scene = SchematicScene(doc)
+        wire = scene._wires["LDb:0"]
+        self.assertEqual(wire.waypoints, [])
+        click = wire.points()[0] + QPointF(0, -3)
+        wire.mouseDoubleClickEvent(_mouse("double", click))
+        self.assertEqual(len(doc.project.wires["LDb:0"]), 1)
+        for a, b in zip(wire.points(), wire.points()[1:]):
+            self.assertTrue(abs(a.x() - b.x()) < 1e-9 or abs(a.y() - b.y()) < 1e-9,
+                            "every segment is horizontal or vertical")
+
+        wire.setSelected(True)
+        self.assertEqual(len(wire.handles), 1)
+        grip = wire.handles[0]
+        target = grip.scenePos() + QPointF(40, 0)
+        grip.mousePressEvent(_mouse("press", grip.scenePos()))
+        grip.mouseMoveEvent(_mouse("move", target))
+        grip.mouseReleaseEvent(_mouse("release", target))
+        self.assertEqual(doc.project.wires["LDb:0"][0][0], scene.snap(target).x())
+
+        doc.undo.undo()                               # the move
+        doc.undo.undo()                               # the bend
+        self.assertNotIn("LDb:0", doc.project.wires)
+        self.assertEqual(wire.waypoints, [])
+        doc.undo.redo()
+        self.assertEqual(len(wire.waypoints), 1)
+
+    def test_bends_survive_saving(self):
+        import tempfile
+
+        doc = s1_document()
+        scene = SchematicScene(doc)
+        wire = scene._wires["LDe:0"]
+        wire.mouseDoubleClickEvent(_mouse("double", wire.points()[0]))
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bends.psn"
+            doc.save_to(path)
+            again = NetworkDocument.open(path)
+        self.assertEqual(again.project.wires["LDe:0"], doc.project.wires["LDe:0"])
+        scene2 = SchematicScene(again)
+        self.assertEqual(len(scene2._wires["LDe:0"].waypoints), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 

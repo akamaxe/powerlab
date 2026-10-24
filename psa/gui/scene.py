@@ -14,12 +14,14 @@ from PySide6.QtWidgets import (
 
 from ..core.components import TYPE_REGISTRY, buses_of, is_series
 from . import style as st
-from .commands import Connect, MoveItems, add_component_connected
+from .commands import Connect, MoveItems, SetLayout, SetWire, add_component_connected
 from .items import (
+    BusHandle,
     BusItem,
     ComponentItem,
     OverlayBadge,
     TerminalItem,
+    WireHandle,
     WireItem,
     make_item,
 )
@@ -63,6 +65,7 @@ class SchematicScene(QGraphicsScene):
         document.componentChanged.connect(self._on_component_changed)
         document.connectivityChanged.connect(self._on_connectivity_changed)
         document.layoutChanged.connect(self._on_layout_changed)
+        document.wireChanged.connect(self._on_wire_changed)
         document.parametersChanged.connect(self.refresh_labels)
         document.resultsInvalidated.connect(self.clear_overlay)
         self.rebuild()
@@ -75,6 +78,7 @@ class SchematicScene(QGraphicsScene):
             self.document.connectivityChanged.disconnect(
                 self._on_connectivity_changed)
             self.document.layoutChanged.disconnect(self._on_layout_changed)
+            self.document.wireChanged.disconnect(self._on_wire_changed)
             self.document.parametersChanged.disconnect(self.refresh_labels)
             self.document.resultsInvalidated.disconnect(self.clear_overlay)
         except TypeError:
@@ -94,7 +98,7 @@ class SchematicScene(QGraphicsScene):
         for item in list(self._items.values()):
             self.removeItem(item)
         for wire in list(self._wires.values()):
-            self.removeItem(wire)
+            self._remove_wire(wire)
         self._items.clear()
         self._wires.clear()
         self._wires_by_owner.clear()
@@ -112,9 +116,16 @@ class SchematicScene(QGraphicsScene):
 
         self.rebuild_wires()
 
+    def _remove_wire(self, wire: WireItem) -> None:
+        for handle in wire.handles:
+            if handle.scene() is self:
+                self.removeItem(handle)
+        wire.handles.clear()
+        self.removeItem(wire)
+
     def rebuild_wires(self) -> None:
         for wire in list(self._wires.values()):
-            self.removeItem(wire)
+            self._remove_wire(wire)
         self._wires.clear()
         self._wires_by_owner.clear()
 
@@ -157,6 +168,26 @@ class SchematicScene(QGraphicsScene):
         item = self._items.get(obj_id)
         if item is not None:
             item.refresh_from_model()
+
+    def _on_wire_changed(self, key: str) -> None:
+        wire = self._wires.get(key)
+        if wire is None:
+            return
+        saved = self.document.project.wires.get(key) or []
+        wire.waypoints = [QPointF(p[0], p[1]) for p in saved]
+        wire.refresh()
+
+    def commit_wire(self, wire: WireItem, before: list, after: list) -> None:
+        """A bend was added, moved or removed on ``wire``: one undo step."""
+        self.document.undo.push(SetWire(self.document, wire.key, after, old=before,
+                                        text="Edit wire" if after else "Straighten wire"))
+
+    def commit_bus_resize(self, bus: BusItem, before: dict) -> None:
+        new = dict(before)
+        new.update({"x": bus.x(), "y": bus.y(), "length": bus.length})
+        if any(abs(float(new[k]) - float(before.get(k, new[k]))) > 1e-9
+               for k in ("x", "y", "length")):
+            self.document.undo.push(SetLayout(self.document, bus.comp_id, new, "Resize bus"))
 
     def _on_layout_changed(self, obj_id: str) -> None:
         item = self._items.get(obj_id)
@@ -367,6 +398,9 @@ class SchematicScene(QGraphicsScene):
 
     def contextMenuEvent(self, event):
         item = self.itemAt(event.scenePos(), QTransform())
+        if isinstance(item, (WireItem, WireHandle)):
+            self._wire_menu(item, event)
+            return
         while item is not None and not isinstance(item, ComponentItem):
             item = item.parentItem()
         if not isinstance(item, ComponentItem):
@@ -377,6 +411,36 @@ class SchematicScene(QGraphicsScene):
             item.setSelected(True)
         self.selectionInfoChanged.emit(item.comp_id)
         self.build_context_menu(item).exec(event.screenPos())
+        event.accept()
+
+    def _wire_menu(self, item, event) -> None:
+        wire = item.wire if isinstance(item, WireHandle) else item
+        menu = QMenu()
+        pos = self.snap(event.scenePos())
+
+        def add_bend():
+            wire.begin_edit()
+            wire.waypoints.insert(wire.insertion_index(event.scenePos()), pos)
+            wire.commit_edit()
+
+        def remove_bend(index):
+            wire.begin_edit()
+            del wire.waypoints[index]
+            wire.commit_edit()
+
+        def straighten():
+            wire.begin_edit()
+            wire.waypoints.clear()
+            wire.commit_edit()
+
+        menu.addAction("Add bend here").triggered.connect(add_bend)
+        if isinstance(item, WireHandle):
+            menu.addAction("Remove this bend").triggered.connect(
+                lambda _=False, i=item.index: remove_bend(i))
+        straight = menu.addAction("Remove all bends")
+        straight.setEnabled(bool(wire.waypoints))
+        straight.triggered.connect(straighten)
+        menu.exec(event.screenPos())
         event.accept()
 
     def build_context_menu(self, item: ComponentItem) -> QMenu:

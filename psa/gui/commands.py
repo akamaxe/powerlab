@@ -157,6 +157,25 @@ class SetLayout(QUndoCommand):
         self.doc._apply_layout(self.obj_id, self.old)
 
 
+class SetWire(QUndoCommand):
+    """Change the bends of one wire (``[]`` restores the automatic route)."""
+
+    def __init__(self, doc, key: str, waypoints: list[list[float]],
+                 old: list[list[float]] | None = None, text: str = "Edit wire"):
+        super().__init__(text)
+        self.doc = doc
+        self.key = key
+        self.new = [list(p) for p in waypoints]
+        self.old = ([list(p) for p in old] if old is not None
+                    else [list(p) for p in doc.project.wires.get(key, [])])
+
+    def redo(self):
+        self.doc._apply_wire(self.key, self.new)
+
+    def undo(self):
+        self.doc._apply_wire(self.key, self.old)
+
+
 class SetNetworkSettings(QUndoCommand):
     def __init__(self, doc, s_base: float, f_hz: float, ref_bus: str, ref_u: float):
         super().__init__("Change base settings")

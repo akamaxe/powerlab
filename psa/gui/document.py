@@ -36,6 +36,7 @@ class NetworkDocument(QObject):
     componentChanged = Signal(str)          # one object's data changed
     connectivityChanged = Signal(str)       # a terminal was re-attached
     layoutChanged = Signal(str)             # an item moved or resized
+    wireChanged = Signal(str)               # a wire's bends, by "COMP:terminal"
     resultsInvalidated = Signal()
     dirtyChanged = Signal(bool)
     parametersChanged = Signal()
@@ -194,6 +195,13 @@ class NetworkDocument(QObject):
     def _apply_layout(self, obj_id: str, layout: dict) -> None:
         self.project.layout[obj_id] = dict(layout)
         self.layoutChanged.emit(obj_id)
+
+    def _apply_wire(self, key: str, waypoints: list) -> None:
+        if waypoints:
+            self.project.wires[key] = [list(p) for p in waypoints]
+        else:
+            self.project.wires.pop(key, None)
+        self.wireChanged.emit(key)
 
     def _apply_network_settings(self, s_base: float, f_hz: float,
                                 ref_bus: str, ref_u: float) -> None:

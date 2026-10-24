@@ -11,11 +11,12 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QFontMetricsF, QPainterPath, QPolygonF
+from PySide6.QtGui import QFontMetricsF, QPainterPath, QPainterPathStroker, QPolygonF
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsPathItem,
+    QGraphicsRectItem,
     QGraphicsSimpleTextItem,
 )
 
@@ -234,6 +235,21 @@ class ComponentItem(QGraphicsObject):
             return self.terminals[index].scenePos()
         return self.scenePos()
 
+    def terminal_direction(self, index: int) -> QPointF:
+        """Unit vector, in scene axes, pointing out of terminal ``index``.
+
+        Every terminal sits on the symbol's outline, so the direction from
+        the symbol's origin to the terminal is the way a wire should leave.
+        """
+        if index >= len(self.TERMINALS):
+            return QPointF(1.0, 0.0)
+        tx, ty, _ = self.TERMINALS[index]
+        origin = self.mapToScene(QPointF(0.0, 0.0))
+        tip = self.mapToScene(QPointF(tx, ty))
+        dx, dy = tip.x() - origin.x(), tip.y() - origin.y()
+        norm = math.hypot(dx, dy) or 1.0
+        return QPointF(dx / norm, dy / norm)
+
     # -- Qt hooks ------------------------------------------------------ #
 
     def itemChange(self, change, value):
@@ -276,6 +292,71 @@ class ComponentItem(QGraphicsObject):
 # --------------------------------------------------------------------------- #
 
 
+class BusHandle(QGraphicsRectItem):
+    """A grip at one end of a selected busbar; dragging it resizes the bar.
+
+    The opposite end stays put, the dragged end follows the grid, and the
+    length stays a whole number of double grid steps so the bar's centre
+    remains on the grid.
+    """
+
+    SIZE = 8.0
+
+    def __init__(self, bus: "BusItem", end: int):
+        super().__init__(-self.SIZE / 2, -self.SIZE / 2, self.SIZE, self.SIZE, bus)
+        self.bus = bus
+        self.end = end                      # -1: first end, +1: second end
+        self.setBrush(Qt.GlobalColor.white)
+        self.setPen(st.pen(st.SELECTION, 1.4, cosmetic=True))
+        self.setZValue(st.Z_HANDLE)
+        self.setCursor(Qt.CursorShape.SizeVerCursor if bus.orientation == "V"
+                       else Qt.CursorShape.SizeHorCursor)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setVisible(False)
+        self._start: dict | None = None
+
+    def place(self) -> None:
+        a, b = self.bus.endpoints()
+        self.setPos(a if self.end < 0 else b)
+        self.setCursor(Qt.CursorShape.SizeVerCursor if self.bus.orientation == "V"
+                       else Qt.CursorShape.SizeHorCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+        doc = self.bus.document
+        self._start = dict(doc.project.layout.get(self.bus.comp_id, {}))
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._start is None:
+            return
+        bus = self.bus
+        grid = getattr(bus.scene(), "grid", st.GRID)
+        a, b = (bus.mapToScene(p) for p in bus.endpoints())
+        fixed = b if self.end < 0 else a
+        pos = event.scenePos()
+        vertical = bus.orientation == "V"
+        dragged = round((pos.y() if vertical else pos.x()) / grid) * grid
+        anchor = fixed.y() if vertical else fixed.x()
+        step = 2 * grid
+        length = max(step, round(abs(dragged - anchor) / step) * step)
+        sign = 1.0 if dragged >= anchor else -1.0
+        centre = anchor + sign * length / 2.0
+        bus.set_length(length)
+        bus.setPos(QPointF(fixed.x(), centre) if vertical else QPointF(centre, fixed.y()))
+        if bus.scene() is not None and hasattr(bus.scene(), "notify_moved"):
+            bus.scene().notify_moved(bus)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._start is not None and self.bus.scene() is not None:
+            self.bus.scene().commit_bus_resize(self.bus, self._start)
+        self._start = None
+        event.accept()
+
+
 class BusItem(ComponentItem):
     """A busbar: a thick bar that other components tap at any point along it."""
 
@@ -288,7 +369,9 @@ class BusItem(ComponentItem):
         self.highlight = ""                 # "" | "candidate" | "target"
         super().__init__(comp_id, document)
         self.setZValue(st.Z_BUS)
+        self.handles = [BusHandle(self, -1), BusHandle(self, +1)]
         self._reposition_label()
+        self._update_handles()
 
     def subtitle(self) -> str:
         comp = self.component
@@ -299,10 +382,24 @@ class BusItem(ComponentItem):
     def set_orientation(self, orientation: str) -> None:
         self._set_geometry(orientation=orientation)
         self._reposition_label()
+        self._update_handles()
 
     def set_length(self, length: float) -> None:
         self._set_geometry(length=max(2 * st.GRID, float(length)))
         self._reposition_label()
+        self._update_handles()
+
+    def _update_handles(self) -> None:
+        comp = self.component
+        show = self.isSelected() and not (comp is not None and comp.kind == "junction")
+        for handle in getattr(self, "handles", ()):
+            handle.place()
+            handle.setVisible(show)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self._update_handles()
+        return super().itemChange(change, value)
 
     def _reposition_label(self) -> None:
         if self.orientation == "V":
@@ -622,13 +719,82 @@ class SourceItem(ComponentItem):
 # --------------------------------------------------------------------------- #
 
 
+def orthogonal_route(start: QPointF, horizontal_first: bool,
+                     waypoints: list[QPointF], end: QPointF) -> list[QPointF]:
+    """Corner points of an orthogonal polyline from ``start`` to ``end``.
+
+    Each hop to the next waypoint (and finally to ``end``) is a straight line
+    or an L; the first L leg runs along the axis the terminal points along,
+    and every L turns the running axis.
+    """
+    points = [QPointF(start)]
+    horizontal = horizontal_first
+    current = QPointF(start)
+    for target in list(waypoints) + [end]:
+        if abs(current.x() - target.x()) > 0.5 and abs(current.y() - target.y()) > 0.5:
+            corner = (QPointF(target.x(), current.y()) if horizontal
+                      else QPointF(current.x(), target.y()))
+            points.append(corner)
+            horizontal = not horizontal
+        elif abs(current.x() - target.x()) > 0.5:
+            horizontal = False             # this hop was horizontal: turn next
+        elif abs(current.y() - target.y()) > 0.5:
+            horizontal = True
+        points.append(QPointF(target))
+        current = QPointF(target)
+    return points
+
+
+class WireHandle(QGraphicsRectItem):
+    """A grip on one bend of a selected wire."""
+
+    SIZE = 7.0
+
+    def __init__(self, wire: "WireItem", index: int):
+        super().__init__(-self.SIZE / 2, -self.SIZE / 2, self.SIZE, self.SIZE)
+        self.wire = wire
+        self.index = index
+        self.setBrush(Qt.GlobalColor.white)
+        self.setPen(st.pen(st.SELECTION, 1.3, cosmetic=True))
+        self.setZValue(st.Z_HANDLE)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self._dragging = False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self.wire.begin_edit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            scene = self.wire.scene()
+            p = scene.snap(event.scenePos()) if hasattr(scene, "snap") else event.scenePos()
+            self.wire.waypoints[self.index] = p
+            self.wire.refresh()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging:
+            self._dragging = False
+            self.wire.commit_edit()
+            event.accept()
+
+
 class WireItem(QGraphicsPathItem):
     """The lead from one component terminal to a bus.
 
     A scene-level item, never a child of either endpoint: parenting it to one
     side would make it follow that side and desynchronise from the other, and
-    would make deletion order matter.
+    would make deletion order matter. It leaves the terminal the way the
+    symbol points, runs orthogonally through the user's bends (``waypoints``,
+    absolute scene points) and meets the bus at the projection of its last
+    point.
     """
+
+    PICK_WIDTH = 8.0
 
     def __init__(self, comp_id: str, terminal_index: int, bus_id: str,
                  scene_owner):
@@ -638,46 +804,117 @@ class WireItem(QGraphicsPathItem):
         self.bus_id = bus_id
         self._scene_owner = scene_owner
         self.waypoints: list[QPointF] = []
+        self.handles: list[WireHandle] = []
+        self._edit_start: list[list[float]] | None = None
+        self._in_service = True
         self.setZValue(st.Z_WIRE)
         self.setPen(st.wire_pen())
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     @property
     def key(self) -> str:
         return f"{self.comp_id}:{self.terminal_index}"
 
-    def refresh(self) -> None:
+    def points(self) -> list[QPointF]:
+        """Corner points of the drawn polyline (empty when an end is missing)."""
         owner = self._scene_owner
         comp_item = owner.item_for(self.comp_id)
         bus_item = owner.item_for(self.bus_id)
         if comp_item is None or bus_item is None:
-            self.setPath(QPainterPath())
-            return
-
+            return []
         start = comp_item.terminal_scene_pos(self.terminal_index)
-        end = bus_item.attach_point(start)
+        direction = comp_item.terminal_direction(self.terminal_index)
+        last = self.waypoints[-1] if self.waypoints else start
+        end = bus_item.attach_point(last)
+        return orthogonal_route(start, abs(direction.x()) >= abs(direction.y()),
+                                self.waypoints, end)
 
-        path = QPainterPath(start)
-        for wp in self.waypoints:
-            path.lineTo(wp)
-        if not self.waypoints:
-            # Orthogonal elbow. Which leg comes first follows the bus
-            # orientation so the wire meets the bar square on.
-            vertical_bus = getattr(bus_item, "orientation", "V") == "V"
-            if abs(start.x() - end.x()) > 0.5 and abs(start.y() - end.y()) > 0.5:
-                mid = (QPointF(end.x(), start.y()) if vertical_bus
-                       else QPointF(start.x(), end.y()))
-                path.lineTo(mid)
-        path.lineTo(end)
-
+    def refresh(self) -> None:
+        pts = self.points()
+        path = QPainterPath()
+        if pts:
+            path.moveTo(pts[0])
+            for p in pts[1:]:
+                path.lineTo(p)
         self.prepareGeometryChange()
         self.setPath(path)
         comp = None
         try:
-            comp = owner.document.network.get(self.comp_id)
+            comp = self._scene_owner.document.network.get(self.comp_id)
         except KeyError:
             pass
-        self.setPen(st.wire_pen(in_service=bool(comp is None or comp.in_service)))
+        self._in_service = bool(comp is None or comp.in_service)
+        self.setPen(st.wire_pen(self.isSelected(), self._in_service))
+        self._place_handles()
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self.PICK_WIDTH)
+        return stroker.createStroke(self.path())
+
+    # -- editing ------------------------------------------------------- #
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self.setPen(st.wire_pen(bool(value), self._in_service))
+            self._place_handles()
+        return super().itemChange(change, value)
+
+    def _place_handles(self) -> None:
+        scene = self.scene()
+        want = len(self.waypoints) if self.isSelected() else 0
+        while len(self.handles) > want:
+            handle = self.handles.pop()
+            if handle.scene() is not None:
+                handle.scene().removeItem(handle)
+        while len(self.handles) < want and scene is not None:
+            handle = WireHandle(self, len(self.handles))
+            scene.addItem(handle)
+            self.handles.append(handle)
+        for handle, p in zip(self.handles, self.waypoints):
+            handle.setPos(p)
+
+    def begin_edit(self) -> None:
+        self._edit_start = [[p.x(), p.y()] for p in self.waypoints]
+
+    def commit_edit(self) -> None:
+        before, self._edit_start = self._edit_start, None
+        after = [[p.x(), p.y()] for p in self.waypoints]
+        if before != after and hasattr(self._scene_owner, "commit_wire"):
+            self._scene_owner.commit_wire(self, before or [], after)
+
+    def insertion_index(self, scene_pos: QPointF) -> int:
+        """Where a bend clicked at ``scene_pos`` belongs among the waypoints."""
+        pts = self.points()
+        if len(pts) < 2:
+            return len(self.waypoints)
+        best, best_d = 0, float("inf")
+        for k in range(len(pts) - 1):
+            d = _distance_to_segment(scene_pos, pts[k], pts[k + 1])
+            if d < best_d:
+                best, best_d = k, d
+        # Count the user's bends among the corners before that segment.
+        user = {(round(p.x(), 3), round(p.y(), 3)) for p in self.waypoints}
+        return sum(1 for p in pts[1:best + 1]
+                   if (round(p.x(), 3), round(p.y(), 3)) in user)
+
+    def mouseDoubleClickEvent(self, event):
+        scene = self.scene()
+        p = scene.snap(event.scenePos()) if hasattr(scene, "snap") else event.scenePos()
+        self.begin_edit()
+        self.waypoints.insert(self.insertion_index(event.scenePos()), p)
+        self.commit_edit()
+        event.accept()
+
+
+def _distance_to_segment(p: QPointF, a: QPointF, b: QPointF) -> float:
+    ax, ay, bx, by = a.x(), a.y(), b.x(), b.y()
+    dx, dy = bx - ax, by - ay
+    denom = dx * dx + dy * dy
+    t = 0.0 if denom == 0 else max(0.0, min(1.0, ((p.x() - ax) * dx + (p.y() - ay) * dy) / denom))
+    return math.hypot(p.x() - (ax + t * dx), p.y() - (ay + t * dy))
 
 
 # --------------------------------------------------------------------------- #
