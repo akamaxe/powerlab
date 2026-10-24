@@ -59,30 +59,46 @@ Core pipeline, in the order a study sees it:
    Only the positive sequence exists so far. `perunit.py` is the S1 view on top: `to_per_unit`
    returns the legacy `PuModel` (PI branches, shunts, sources, trace) and stays strict.
 5. `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance, Thévenin), `twoport.py`
-   (S1a cascade, cross-checked against Kron reduction of the Y-bus).
-6. `study.py`: `STUDY_REGISTRY` of `Study(key, title, menu_group, run(net, opts, pu),
-   option_fields)`. The GUI menu, F5 and the headless `--study` all come from it.
-7. `results.py` + `units.py`: `Result` holds pre-formatted string tables in MATLAB
-   `format short` style.
+   (S1a cascade, cross-checked against Kron reduction of the Y-bus; whatever hangs off a port
+   without reaching the other one is part of the termination).
+6. `cases.py` + `study.py`: a `Case` is a study id plus options, field `overrides`
+   (`"COMP.field": "expr"`, with the project variables and `value`, the field's own value) and
+   `exclude` (ids taken out of service); `prepare_network` applies them to a deep copy, so the
+   drawn network is never touched. `STUDY_REGISTRY` holds `Study(key, title, menu_group,
+   run(StudyContext), option_fields, defaults, dynamic_choices, note, annotate)`; options are
+   `OptionSpec` (kinds bus, element, elements, choice, float, int, bool, complex, str).
+   `run_case(net, case, params)` lays the case options over `defaults(net)`. Calling a study
+   directly, `study(net, opts, pu)`, still works.
+7. `results.py` + `present.py` + `units.py`: a `Result` holds formatted `Table`s (MATLAB
+   `format short`) and the numbers behind them: `scalars`, per-bus `buses`, per-component
+   `elements` (`Quantity` with a `units.QUANTITY_STYLE` kind) and labelled `matrices`.
+   `Study.annotate(result, mode)` turns a result into diagram `Annotation`s; `present.py` prints
+   matrices with MATLAB's common factor (`1.0e+02 *`).
 
 GUI: `NetworkDocument` owns the `Project` and the `QUndoStack`; the `QUndoCommand`s in
 `commands.py` are the only code that mutates the network (exceptions: `apply_parameters` and
 `reload_script`). Document signals drive the scene and the panels. The scene keeps no model of its
 own: items hold an element id and read the dataclass. Layout lives apart from the electrical model
 in `project.layout` (keyed by element id) and `project.wires` (keyed `"COMP:terminalIndex"`).
-`MainWindow._run` converts to per unit once, runs the studies, then re-runs `solve_voltages` for
-the diagram overlay, whatever study ran (to be replaced in roadmap phase 3).
+`MainWindow._run_cases` runs each case through `run_case` (F5 runs the project's cases, or one
+default case per study when there are none); the Calculate menu edits the study's own case (id =
+study key) in `CaseDialog`, which is generated from the `OptionSpec`s and has a "Network
+variant" tab. Cases change through the `SetCases` command. Diagram badges come from the
+annotating study of the shown result tab and follow their element when it moves. The app uses
+the Fusion style: the native Windows 11 style loses check-box indicators under a global style
+sheet.
 
-`.psn` files are JSON (`serialize.py`, `VERSION` plus a `MIGRATIONS` chain). Components are built
+`.psn` files are JSON (`serialize.py`, `VERSION` 2 plus a `MIGRATIONS` chain; version 1 kept
+`studies` options and migrates to `cases`), written with LF line endings. Components are built
 generically from dataclass fields, so a new field with a default needs no migration.
 
 Adding a component type currently touches: the dataclass (with `TERMINALS`) and
 `COMPONENT_CLASSES` (`components.py`), an `ElementModel` in `model/elements.py`,
 `Network.validate` for its sanity checks, `ITEM_CLASSES` (`gui/items.py`), `PALETTE_ITEMS` and
 `symbol_icon` (`gui/panels.py`), `_apply_defaults` (`gui/scene.py`), the id prefixes in
-`NetworkDocument.new_id`, and `serialize.auto_layout`. Adding a study touches
-`study.register` plus the S1 special cases in `gui/dialogs.py` (it only renders bus fields),
-`MainWindow._fill_defaults` and `SchematicScene.show_overlay`.
+`NetworkDocument.new_id`, and `serialize.auto_layout`. Adding a study only takes a
+`study.register(Study(...))` call: the menu, the case dialog, F5, the result tab and the diagram
+badges all follow from it.
 
 ## Modelling and presentation conventions
 
@@ -101,6 +117,7 @@ Adding a component type currently touches: the dataclass (with `TERMINALS`) and
   New assignment tests compare against these at `rtol=1e-9` (load flow `1e-8`), at A = 80 and
   A = 0. The A = 0 S3b values printed in the assignment statement contain misprints; see
   `tools/refs/README.md`.
+- `tests/fixtures/s1_a80_v1.psn`: a version 1 project, for the migration test.
 - `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor, and
   `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`
   holds the refactor to both. Regenerate them only for an intended change.

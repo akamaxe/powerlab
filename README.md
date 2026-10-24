@@ -94,7 +94,7 @@ Every component has a name and an *In service* checkbox: an out-of-service compo
 grey and dashed, and no study takes it into account. A new component starts with sensible values
 (e.g. a 10 MVA 40/12 kV 7 % transformer and a 0.16 + j0.08 Ω/km cable, as in S1).
 
-### Studies (*Calculate* menu, `F5` runs them all)
+### Studies and study cases (*Calculate* menu, `F5` runs every case)
 
 | Study | What it shows |
 |---|---|
@@ -103,11 +103,20 @@ grey and dashed, and no study takes it into account. A new component starts with
 | **S1b) Equivalent impedance** | `Z = U/I` looking into the network from a bus, in pu and in Ω, and the check against `(A·Z+B)/(C·Z+D)` |
 | **S1c) Bus voltages** | Solves the linear network: voltage of every bus (pu, angle, kV), flows and losses per branch, current and power of each source, voltage drop and the chain `U_a → I_a → U_e` |
 
-From the menu, the S1 studies open a dialog to choose the buses (they are remembered in the
-project; `F5` uses the last ones chosen). In S1a and S1b the dialog lists the shunts sitting on
-the port buses: they are excluded because they are the termination, but you can tick them to
-include them. An ideal source on a port can never be included, because it would short-circuit
-the port.
+A **study case** is a study plus its options and, optionally, a variant of the network: elements
+taken out of service and fields overridden by an expression (`0.5*value` halves a load, and the
+project variables are available too). The drawn network is never changed, so one project can hold
+"industry disconnected", "load at 50 %" and "+10 % load" side by side. Cases live in the *Study
+cases* panel (New, Edit, Duplicate, Delete, Run selected, Run all) and are saved with the project;
+every change can be undone. `F5` runs all the cases; a project without cases runs every study with
+its default options.
+
+From the *Calculate* menu, a study opens the dialog of its own case (its options are remembered
+in the project). In S1a the dialog lists the shunts sitting on the port buses: they are excluded
+because they are the termination, but you can tick them to include them. An ideal source on a
+port can never be included, because it would short-circuit the port. Whatever hangs off a port
+without leading to the other one (the rest of a feeder beyond port 2) is part of the termination
+as well.
 
 **Every two-port matrix is computed twice**, by cascading the element matrices and by Kron
 reduction of the Y-bus, and the two are compared. This is a real check, not decoration: the
@@ -124,9 +133,12 @@ Also:
   Errors are explained in a message, not with a traceback. A component that is not wired yet only
   gives a warning and is left out, so a half-drawn element never blocks the studies.
 - If a study cannot run, the others are still shown and the failed one appears with the reason.
-- **Diagram annotations** (`Ctrl+R`): after computing, each bus shows its voltage in kV and in pu
-  with angle, and each branch `|I|` and `S`. Any change to the model clears them and marks the
-  results as stale.
+- **Diagram annotations** (`Ctrl+R`): the study in the selected result tab annotates the diagram;
+  for the bus voltages, each bus shows its voltage in kV and in pu with angle, and each branch
+  `|I|` and `S`. Badges follow their element when you move it. Any change to the model clears
+  them and marks the results as stale.
+- **Copy results**: select cells and press `Ctrl+C`, or right-click a table for *Copy table*
+  (tab-separated, ready for a spreadsheet).
 - **Course presentation**: impedance and power in rectangular form; voltage and current in polar
   form with the angle in degrees, in MATLAB's `format short` style.
 
@@ -141,11 +153,12 @@ loads, off-nominal taps, sequence networks or short circuits.
 - **Library** (left): the component palette.
 - **Variables** (left): project variables and those of the linked script.
 - **Properties** (right): form for the selected element, generated from its fields.
+- **Study cases** (right): the cases `F5` runs, with their buttons.
 - **Results** (bottom): one tab per study with the headline, the warnings and the tables, plus a
   *Log* tab with the full text. If you change the model, the tabs are marked with ` *` and a
   notice appears over the canvas.
 - Menus: *File*, *Edit*, *View* (zoom, annotations, show/hide panels), *Network*
-  (*Base settings...*), *Calculate* (*Run all studies* and one submenu per study group) and *Help*.
+  (*Base settings...*), *Calculate* (*Run all cases* and one submenu per study group) and *Help*.
 
 ### Drawing and connecting
 
@@ -170,7 +183,7 @@ an element takes you to the *Properties* panel. Elements snap to the grid.
 | `Ctrl` + wheel, `Ctrl++` / `Ctrl+-` | Zoom |
 | `Ctrl+0` / `Ctrl+1` | Fit all / actual size |
 | Middle button or `Space` + drag | Pan the canvas |
-| `F5` | Run all studies |
+| `F5` | Run all study cases |
 | `Ctrl+R` | Show or hide the diagram annotations |
 
 Undo covers adding, deleting, moving, connecting, editing properties, the bases, the variables
@@ -218,12 +231,12 @@ A project is a UTF-8 JSON file, readable and easy to compare in a diff:
 
 | Key | Contents |
 |---|---|
-| `format`, `version` | `"psa-project"` and the format version (1 today; there is a migration chain) |
+| `format`, `version` | `"psa-project"` and the format version (2 today; version 1 files are migrated on open) |
 | `meta` | Title and notes |
 | `network` | `S_base`, frequency, reference bus and voltage, buses and components (complex numbers as `[re, im]`) |
 | `parameters` | `script_path`, project variables and *bindings* `"COMPONENT.field": "expression"` |
 | `layout` | Grid, position of every symbol, and wires |
-| `studies` | Buses chosen for each study |
+| `cases` | Study cases: `id`, `study`, `title`, `options`, `overrides`, `exclude` |
 | `view` | Annotation state |
 
 Only `network` is mandatory: a file without `layout` opens with an automatic ladder layout
@@ -266,28 +279,29 @@ psa/gui/      PySide6 (Qt 6); importing it first works around Anaconda's ICU on 
 ### Adding a study (S2, S3, LF)
 
 Write the function in `psa/core/` and register it with `study.register(Study(key, title,
-menu_group, run, option_fields, description))`. That makes it appear by itself in the
-*Calculate* menu, in `F5`, in the results tabs and in console mode's `--study`, and the options
-dialog is generated from `option_fields`. Today the GUI still has to be touched in three cases:
-
-- the options dialog only knows how to show bus-type fields (`gui/dialogs.py`);
-- that dialog's default values live in `MainWindow._fill_defaults`;
-- the diagram annotations only know voltages and flows (`SchematicScene.show_overlay`).
+menu_group, run, option_fields, defaults, annotate, ...))`. That makes it appear by itself in the
+*Calculate* menu, in the *New case* menu, in `F5`, in the results tabs and in console mode's
+`--study`; the case dialog is generated from its `OptionSpec`s and `annotate` draws its results on
+the diagram. No GUI code has to change.
 
 ## Verification
 
 ```
-python -m unittest discover -s tests -t .     # 117 tests, ~1 s, the GUI runs offscreen
+python -m pytest                              # 161 tests, a few seconds, the GUI runs offscreen
+python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
 ```
 
 | File | Tests | What it covers |
 |---|---|---|
-| `test_s1_a80.py` | 27 | Bases, pu values, `F_ae`, `det`, cascade vs Y-bus, termination rule, `Z_I`, phasor chain, A sweep |
+| `test_s1_a80.py` | 28 | Bases, pu values, `F_ae`, `det`, cascade vs Y-bus, termination rule, `Z_I`, phasor chain, A sweep |
+| `test_matlab_refs.py` | 3 | S1 and the S2b Thévenin against every digit of the MATLAB solutions, A = 80 and A = 0 |
+| `test_core_model.py` | 17 | Element models and sequence networks: parity with the previous per-unit model, the S2 Y-bus (9x9 and 8x8) against MATLAB, the unchanged console output, robustness |
+| `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 40 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window and startup |
+| `test_gui.py` | 47 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, startup |
 | `test_s2_thevenin.py` | 2 | Thévenin at bus 7 of S2 for A = 0 and A = 80 |
 
 The S1 reference values come from the MATLAB reference solution of the assignment (A = 80). The
