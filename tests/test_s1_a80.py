@@ -244,6 +244,18 @@ class TwoPortDirection(unittest.TestCase):
         self.assertEqual(
             resolve_port_exclusions(net, "bus_e", "bus_a"), {"SRC", "LDe"})
 
+    def test_what_hangs_beyond_a_port_is_the_termination(self):
+        """Ports a and d: TI2 and LDe beyond bus d belong to the load, not the two-port."""
+        net = build_s1(80.0)
+        tp = two_port(net, "bus_a", "bus_d")
+        self.assertEqual(resolve_port_exclusions(net, "bus_a", "bus_d"),
+                         {"SRC", "TI2", "LDe"})
+        self.assertIn(("TI2", "TI2 beyond the ports (transformer)"),
+                      tp.excluded_at_ports)
+        self.assertLess(tp.residual_rel, 1e-9)
+        names = [name for name, _ in tp.per_element]
+        self.assertEqual(names, ["TI1", "LDb", "LIbc", "LIcd"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,9 @@ Termination rule
 4. Rule 3 is overridable per component, with one hard block: an *ideal* source
    at a port bus can never be re-included, because as a shunt it short-circuits
    the port.
+5. Everything that hangs off a port without leading to the other one (the rest
+   of a feeder beyond port 2, the grid behind port 1) is part of the
+   termination as well, so it is left out of both methods.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ from itertools import islice
 import networkx as nx
 import numpy as np
 
-from .components import Source, buses_of, display_name, is_node_shunt
+from .components import Source, buses_of, display_name, is_node_shunt, is_series
 from .errors import DecoupledPortsError, TopologyError, ValidationError
 from .network import Network
 from .perunit import PuModel, PuSeries, to_per_unit
@@ -138,11 +141,15 @@ def resolve_port_exclusions(net: Network, bus_i: str, bus_j: str,
     short circuit across the port.
     """
     ports = {bus_i, bus_j}
+    beyond = buses_beyond_ports(net, bus_i, bus_j)
     excluded: set[str] = set()
     for comp in net.active_components():
+        bs = buses_of(comp)
+        if any(b in beyond for b in bs):
+            excluded.add(comp.id)               # rule 5
+            continue
         if not is_node_shunt(comp):
             continue
-        bs = buses_of(comp)
         if not bs or bs[0] not in ports:
             continue
         if comp.id in overrides and not (isinstance(comp, Source) and comp.is_ideal):
@@ -151,12 +158,34 @@ def resolve_port_exclusions(net: Network, bus_i: str, bus_j: str,
     return excluded
 
 
-def _excluded_detail(net: Network, excluded: set[str]) -> list[tuple[str, str]]:
+def buses_beyond_ports(net: Network, bus_i: str, bus_j: str) -> set[str]:
+    """Buses reachable from one port only through that port (rule 5)."""
+    g = net.graph()
+    beyond: set[str] = set()
+    for port, other in ((bus_i, bus_j), (bus_j, bus_i)):
+        if port not in g:
+            continue
+        rest = g.copy()
+        rest.remove_node(port)
+        for part in nx.connected_components(rest):
+            if other not in part:
+                beyond |= part
+    return beyond
+
+
+def _excluded_detail(net: Network, excluded: set[str], ports: set[str]
+                     ) -> list[tuple[str, str]]:
     out = []
     for comp_id in sorted(excluded):
         comp = net.components[comp_id]
-        out.append((comp_id, f"{display_name(comp)} at bus "
-                             f"{buses_of(comp)[0]} ({comp.TYPE})"))
+        bus = buses_of(comp)[0]
+        if is_series(comp):
+            reason = f"{display_name(comp)} beyond the ports ({comp.TYPE})"
+        elif bus in ports:
+            reason = f"{display_name(comp)} at bus {bus} ({comp.TYPE})"
+        else:
+            reason = f"{display_name(comp)} at bus {bus}, beyond the ports ({comp.TYPE})"
+        out.append((comp_id, reason))
     return out
 
 
@@ -260,9 +289,15 @@ def cascade_two_port(net: Network, pu: PuModel, bus_i: str, bus_j: str,
 
 
 def general_two_port(pu: PuModel, bus_i: str, bus_j: str,
-                     excluded: set[str]) -> np.ndarray:
-    """Reduce the network to a 2x2 admittance matrix and convert it to ABCD."""
-    Y, index = build_ybus(pu, exclude=excluded, include_sources=True)
+                     excluded: set[str],
+                     skip_buses: set[str] = frozenset()) -> np.ndarray:
+    """Reduce the network to a 2x2 admittance matrix and convert it to ABCD.
+
+    ``skip_buses`` (the buses beyond the ports) are left out of the matrix:
+    with their elements excluded they would be floating rows.
+    """
+    order = [b for b in (pu.buses or pu.bases.u_base_kv) if b not in skip_buses]
+    Y, index = build_ybus(pu, bus_order=order, exclude=excluded, include_sources=True)
     if bus_i not in index or bus_j not in index:
         missing = [b for b in (bus_i, bus_j) if b not in index]
         raise ValidationError(f"Unknown port bus: {', '.join(missing)}", missing)
@@ -309,7 +344,8 @@ def two_port(net: Network, bus_i: str, bus_j: str,
     pu = pu or to_per_unit(net)
     excluded = resolve_port_exclusions(net, bus_i, bus_j, set(exclude_overrides))
 
-    f_gen = general_two_port(pu, bus_i, bus_j, excluded)
+    f_gen = general_two_port(pu, bus_i, bus_j, excluded,
+                             buses_beyond_ports(net, bus_i, bus_j))
     f_cas, per_element, path, status = cascade_two_port(
         net, pu, bus_i, bus_j, excluded)
 
@@ -317,7 +353,7 @@ def two_port(net: Network, bus_i: str, bus_j: str,
         bus_i=bus_i, bus_j=bus_j,
         f_general=f_gen, f_cascade=f_cas,
         per_element=per_element,
-        excluded_at_ports=_excluded_detail(net, excluded),
+        excluded_at_ports=_excluded_detail(net, excluded, {bus_i, bus_j}),
         path=path, cascade_status=status,
         label_i=display_name(net.buses[bus_i]),
         label_j=display_name(net.buses[bus_j]),
