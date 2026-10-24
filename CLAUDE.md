@@ -29,8 +29,10 @@ Regenerating the MATLAB reference fixtures needs the coursework folder and MATLA
 ## Architecture
 
 Two packages with a hard boundary: `psa/core` (numpy + networkx, no Qt; `CoreIsQtFree` in
-`tests/test_core_units_and_params.py` checks it in a subprocess) and `psa/gui` (PyQt5 today,
-PySide6 from roadmap phase 1).
+`tests/test_core_units_and_params.py` checks it in a subprocess) and `psa/gui` (PySide6 /
+Qt 6). Import `psa.gui` before anything that imports PySide6: on Windows its `__init__`
+preloads the system ICU, because Anaconda's `Library\bin\icuuc.dll` otherwise shadows it and
+`Qt6Core.dll` fails to load. Enums are written fully qualified (`Qt.MouseButton.LeftButton`).
 
 Core pipeline, in the order a study sees it:
 

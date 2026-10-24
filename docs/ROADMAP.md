@@ -4,8 +4,8 @@
 
 | Phase | Topic | Status |
 |---|---|---|
-| 0 | Repository, conventions, references | in progress |
-| 1 | GUI on PySide6 | pending |
+| 0 | Repository, conventions, references | done |
+| 1 | GUI on PySide6 | done |
 | 2 | Core v2 model | pending |
 | 3 | Study framework v2 and GUI wiring | pending |
 | 4 | S2 end to end | pending |

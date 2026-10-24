@@ -21,15 +21,19 @@ The plan for v1 (all four assignments, a PowerFactory-grade editor) is in
 ## Installation and startup
 
 **Requirements:** Python (tested with Anaconda's 3.12.13; 3.10 or later should work),
-**PyQt5**, **numpy** and **networkx**. Nothing else: scipy and matplotlib are not used, and the
-tests use the standard library's `unittest` (pytest is not required). Console mode
+**PySide6** (Qt 6), **numpy** and **networkx**. Nothing else: scipy and matplotlib are not
+used, and the tests run with pytest or with the standard library's `unittest`. Console mode
 (`run_s1_headless.py`) only needs numpy and networkx.
 
-The Anaconda distribution already ships all of them. In another environment:
+Anaconda ships numpy and networkx; PySide6 comes from pip:
 
 ```
-conda install pyqt numpy networkx        # or: pip install PyQt5 numpy networkx
+pip install PySide6 numpy networkx
 ```
+
+On Windows with Anaconda, Qt 6 can fail to load ("the specified procedure could not be found")
+because Anaconda's own ICU library shadows the one Qt expects. `psa.gui` works around it when
+imported, so import it before anything that imports PySide6 (`run_gui.py` already does).
 
 There is nothing to install or build for the project itself. Open a terminal (PowerShell or
 Anaconda Prompt) in the `PowerLab` folder and run:
@@ -243,8 +247,8 @@ psa/core/     numpy + networkx, no Qt at all (a test checks it in a subprocess)
   serialize   project <-> `.psn` JSON, with a migration chain
   examples    the S1 network parametrized by the A-number
   errors      typed errors carrying the ids of the elements involved
-psa/gui/      PyQt5
-  app         QApplication (High-DPI), initial document, exception hook
+psa/gui/      PySide6 (Qt 6); importing it first works around Anaconda's ICU on Windows
+  app         QApplication, initial document, exception hook
   mainwindow  menus, panels and study execution
   document    owner of the project and of the QUndoStack
   commands    the QUndoCommands: the only code that mutates the network
