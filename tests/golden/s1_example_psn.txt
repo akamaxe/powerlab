@@ -1,0 +1,156 @@
+PowerLab - EG2100 Assignment S1, A = 80
+=======================================
+
+=== Per-unit model ===
+
+Base values
+-----------
+Bus  U base [kV]  Z base [ohm]  I base [kA]
+---  -----------  ------------  -----------
+a    40           160.0000      0.1443
+b    12           14.4000       0.4811
+c    12           14.4000       0.4811
+d    12           14.4000       0.4811
+e    6            3.6000        0.9623
+(S base = 10 MVA)
+
+Voltage zones
+-------------
+U base [kV]  Buses  
+-----------  -------
+40           a
+12           b, c, d
+6            e
+
+Component values in per unit
+----------------------------
+Component  Type         Z [pu]                    y shunt [pu]              S [MVA]           U nom [kV]  (Ub/Un)^2  Note                        
+---------  -----------  ------------------------  ------------------------  ----------------  ----------  ---------  ----------------------------
+Grid       source                                                                                         1          ideal voltage source
+TI1        transformer  0.0000 + 0.1167i                                                      12          1
+TI2        transformer  0.0000 + 0.1600i                                                      6           1
+LIbc       line         0.0016 + 0.0008i          0.0000e+00 + 1.2830e-05i                                1          2 parallel line(s), 0.297 km
+LIcd       line         0.0033 + 0.0016i          0.0000e+00 + 6.4152e-06i                                1          0.297 km
+LDb        load         2.1892e+02 + 1.0603e+02i  0.0037 - 0.0018i          0.0370 + 0.0179i  12          1
+LDe        load         25.0774 + 12.1455i        0.0323 - 0.0156i          0.3230 + 0.1564i  6           1
+(y shunt is the PI half-shunt for lines and the total admittance for loads and shunts)
+
+=== S1a) Two-port matrix: bus a -> bus e ===
+
+A = 1.0002 + 0.0004i   B = 0.0049 + 0.2792i
+C = 0.0037 - 0.0018i   D = 1.0003 + 0.0006i
+
+Convention
+----------
+[U1; I1] = F * [U2; I2]
+port 1 = bus a (source side), port 2 = bus e (load side)
+
+Excluded at the ports (termination rule)
+----------------------------------------
+Component  Reason                    
+---------  --------------------------
+LDe        LDe at bus bus_e (load)
+SRC        Grid at bus bus_a (source)
+(node shunts sitting on a port bus are the termination and the source, so they are not part of the two-port; line charging is always kept)
+
+Element matrices, in cascade order
+----------------------------------
+F_TI1
+    1.0000 + 0.0000i  0.0000 + 0.1167i
+    0.0000 + 0.0000i  1.0000 + 0.0000i
+F_LDb
+    1.0000 + 0.0000i  0.0000 + 0.0000i
+    0.0037 - 0.0018i  1.0000 + 0.0000i
+F_LIbc
+     1.0000 + 0.0000i   0.0016 + 0.0008i
+    -0.0000 + 0.0000i   1.0000 + 0.0000i
+F_LIcd
+     1.0000 + 0.0000i   0.0033 + 0.0016i
+    -0.0000 + 0.0000i   1.0000 + 0.0000i
+F_TI2
+    1.0000 + 0.0000i  0.0000 + 0.1600i
+    0.0000 + 0.0000i  1.0000 + 0.0000i
+
+F_ae
+----
+1.0002 + 0.0004i  0.0049 + 0.2792i
+0.0037 - 0.0018i  1.0003 + 0.0006i
+
+Checks
+------
+Quantity                    Value                                    
+--------------------------  -----------------------------------------
+det(F)                      1.0000 + 0.0000i
+|det(F) - 1|                6.661e-16
+cascade vs Y-bus, relative  1.701e-14
+cascade path                bus_a -> bus_b -> bus_c -> bus_d -> bus_e
+
+=== S1b) Equivalent impedance seen from bus a ===
+
+Z = 22.5232 + 11.1298i pu = 3.6037e+03 + 1.7808e+03i ohm
+
+Result
+------
+Quantity           Value                       
+-----------------  ----------------------------
+Z seen from bus a  22.5232 + 11.1298i pu
+                   3.6037e+03 + 1.7808e+03i ohm
+|Z|                25.1230 pu
+arg(Z)             26.2963 deg
+Z base             160 ohm
+
+Cross-check
+-----------
+Method                    Value                
+------------------------  ---------------------
+Y-bus (Kron reduction)    22.5232 + 11.1298i pu
+two-port (A*Z+B)/(C*Z+D)  22.5232 + 11.1298i pu
+termination Z             25.0774 + 12.1455i pu
+residual, absolute        1.030e-11
+residual, relative        4.098e-13
+
+=== S1c) Bus voltages ===
+
+U at bus e = 0.9952 pu < -0.5345 deg = 5.9715 kV, voltage drop 0.4751 %
+
+Phasor chain
+------------
+Quantity  Per unit                  SI       
+--------  ------------------------  ---------
+U_a       1 pu < 0.0000 deg         40 kV
+I_a       0.0398 pu < -26.2963 deg  0.0057 kA
+U_e       0.9952 pu < -0.5345 deg   5.9715 kV
+I_e       0.0357 pu < -26.3764 deg  0.0344 kA
+
+Bus voltages
+------------
+Bus  U [pu]  angle [deg]  U [kV]   I injected [pu]          
+---  ------  -----------  -------  -------------------------
+a    1       0.0000       40       0.0398 < -26.2963 deg
+b    0.9980  -0.2390      11.9754  5.6843e-14 < 90.0000 deg
+c    0.9979  -0.2391      11.9746  1.2711e-13 < -26.5651 deg
+d    0.9978  -0.2391      11.9730  6.3728e-14 < 158.7547 deg
+e    0.9952  -0.5345      5.9715   3.4694e-18 < 180.0000 deg
+
+Branch flows
+------------
+Branch  From  To  I from [pu]            S from [pu]       losses [pu]             
+------  ----  --  ---------------------  ----------------  ------------------------
+TI1     a     b   0.0398 < -26.2963 deg  0.0357 + 0.0176i  0.0000e+00 + 1.8484e-04i
+TI2     d     e   0.0357 < -26.3764 deg  0.0320 + 0.0157i  0.0000e+00 + 2.0413e-04i
+LIbc    b     c   0.0357 < -26.3211 deg  0.0320 + 0.0157i  2.1037e-06 - 2.4502e-05i
+LIcd    c     d   0.0357 < -26.3580 deg  0.0320 + 0.0157i  4.2095e-06 - 1.0670e-05i
+(total losses = 6.3132e-06 + 3.5380e-04i pu = 0.0001 + 0.0035i MVA)
+
+Sources
+-------
+Source  I [pu]                 I [kA]                 S [MVA]         
+------  ---------------------  ---------------------  ----------------
+SRC     0.0398 < -26.2963 deg  0.0057 < -26.2963 deg  0.3569 + 0.1763i
+
+Cross-check
+-----------
+Comparison                                 Residual 
+-----------------------------------------  ---------
+U at the far bus: nodal solve vs two-port  2.655e-15
+I at the source: nodal solve vs U/Z        3.469e-18
