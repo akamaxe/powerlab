@@ -174,14 +174,38 @@ class ComponentItem(QGraphicsObject):
         self.update()
 
     def _place_labels(self) -> None:
-        """Centre the name on the anchor, hang the detail line beneath it."""
-        anchor = self._label_offset
+        """Put the name and the detail line at the anchor, always upright.
+
+        The anchor is designed for the unrotated symbol. Rotated, it turns with
+        the symbol (so the text stays on the same side of it) but the text
+        itself does not: it is counter-rotated and laid out in scene axes,
+        centred under or over the anchor, or beside it when the anchor ends up
+        to the left or right of the symbol.
+        """
+        rot = round(self.rotation()) % 360
+        theta = math.radians(rot)
+        c, s = math.cos(theta), math.sin(theta)
+        a = self._label_offset
+        ax, ay = a.x() * c - a.y() * s, a.x() * s + a.y() * c     # scene offset
+
         rect = self.label.boundingRect()
-        self.label.setPos(anchor.x() - rect.width() / 2.0, anchor.y())
-        sub_w = self.sublabel.boundingRect().width()
-        self.sublabel.setPos(anchor.x() - sub_w / 2.0,
-                             anchor.y() + rect.height() - 2.0)
-        self.sublabel.setVisible(bool(self.sublabel.text()))
+        sub = self.sublabel.boundingRect()
+        has_sub = bool(self.sublabel.text())
+        line = rect.height() - 2.0
+        height = line + (sub.height() if has_sub else 0.0)
+        if abs(ax) > abs(ay) + 1e-6:          # beside the symbol
+            top = ay - height / 2.0
+            if ax > 0:
+                name_x, sub_x = ax, ax
+            else:
+                name_x, sub_x = ax - rect.width(), ax - sub.width()
+        else:                                  # under or over it
+            top = ay if ay >= 0 or rot == 0 else ay - height
+            name_x, sub_x = ax - rect.width() / 2.0, ax - sub.width() / 2.0
+        for item, x, y in ((self.label, name_x, top), (self.sublabel, sub_x, top + line)):
+            item.setRotation(-rot)
+            item.setPos(x * c + y * s, -x * s + y * c)            # back to local
+        self.sublabel.setVisible(has_sub)
 
     def set_label_offset(self, dx: float, dy: float) -> None:
         """``(dx, dy)`` is where the *centre* of the name sits, in local units."""
@@ -223,6 +247,8 @@ class ComponentItem(QGraphicsObject):
                 scene.notify_moved(self)
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
+        if change == QGraphicsItem.GraphicsItemChange.ItemRotationHasChanged:
+            self._place_labels()
         return super().itemChange(change, value)
 
     def hoverEnterEvent(self, event):
@@ -259,7 +285,7 @@ class BusItem(ComponentItem):
                  length: float = st.BUS_LENGTH):
         self.orientation = orientation
         self.length = float(length)
-        self.highlight = False
+        self.highlight = ""                 # "" | "candidate" | "target"
         super().__init__(comp_id, document)
         self.setZValue(st.Z_BUS)
         self._reposition_label()
@@ -311,7 +337,7 @@ class BusItem(ComponentItem):
                                       self.is_in_service(), self.highlight))
             painter.setBrush(st.INK if self.is_in_service() else st.OUT_OF_SERVICE)
             painter.drawEllipse(QPointF(0, 0), 4.5, 4.5)
-            if self.highlight or self.isSelected():
+            if self.highlight == "target" or self.isSelected():
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawEllipse(QPointF(0, 0), 9.0, 9.0)
             return
@@ -339,9 +365,11 @@ class BusItem(ComponentItem):
         t = max(0.0, min(1.0, t))
         return QPointF(a.x() + t * ab.x(), a.y() + t * ab.y())
 
-    def set_highlight(self, on: bool) -> None:
-        if self.highlight != on:
-            self.highlight = on
+    def set_highlight(self, level) -> None:
+        """``"target"``, ``"candidate"``, or falsy to clear (``True`` = candidate)."""
+        level = "candidate" if level is True else (level or "")
+        if self.highlight != level:
+            self.highlight = level
             self.update()
 
 

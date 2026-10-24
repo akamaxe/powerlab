@@ -704,6 +704,146 @@ class GridStudies(unittest.TestCase):
         win.close()
 
 
+class EditorErgonomics(unittest.TestCase):
+    """Property editing in place, multi-selection, context menus, Esc, labels."""
+
+    def setUp(self):
+        self.doc = s1_document()
+
+    def editor(self):
+        from psa.gui.panels import PropertyEditor
+        return PropertyEditor(self.doc)
+
+    def test_committing_a_value_keeps_the_same_widgets(self):
+        """Rebuilding the form on every edit is what used to steal the focus."""
+        ed = self.editor()
+        ed.bind("TI1")
+        x_pct, r_pct = ed._widgets["x_pct"], ed._widgets["r_pct"]
+        x_pct.setText("8")
+        x_pct.committed.emit("8")
+        self.assertEqual(self.doc.network.get("TI1").x_pct, 8.0)
+        self.assertIs(ed._widgets["x_pct"], x_pct)
+        self.assertIs(ed._widgets["r_pct"], r_pct)
+        ed.deleteLater()
+
+    def test_values_below_the_minimum_are_refused(self):
+        ed = self.editor()
+        ed.bind("LIcd")
+        before = self.doc.undo.count()
+        length = ed._widgets["length_km"]
+        length.setText("-1")
+        length.committed.emit("-1")
+        self.assertEqual(self.doc.undo.count(), before)
+        self.assertEqual(length.property("invalid"), "true")
+        self.assertIn("at least 0", length.toolTip())
+        ed.deleteLater()
+
+    def test_fields_are_grouped(self):
+        from PySide6.QtWidgets import QGroupBox
+
+        ed = self.editor()
+        ed.bind("LIcd")
+        titles = [g.title() for g in ed._form_host.findChildren(QGroupBox)]
+        self.assertEqual(titles, ["General", "Connection", "Parameters"])
+        ed.deleteLater()
+
+    def test_editing_several_lines_at_once(self):
+        ed = self.editor()
+        ed.bind_many(["LIbc", "LIcd"])
+        self.assertNotIn("bus_from", ed._widgets, "connectivity is per element")
+        self.assertNotIn("name", ed._widgets)
+        n_parallel = ed._widgets["n_parallel"]
+        self.assertEqual(n_parallel.text(), "")
+        self.assertEqual(n_parallel.placeholderText(), ed.SEVERAL)
+        before = self.doc.undo.count()
+        r = ed._widgets["r_ohm_per_km"]
+        r.setText("0.2")
+        r.committed.emit("0.2")
+        net = self.doc.network
+        self.assertEqual((net.get("LIbc").r_ohm_per_km, net.get("LIcd").r_ohm_per_km),
+                         (0.2, 0.2))
+        self.assertEqual(self.doc.undo.count(), before + 1, "one undo step")
+        self.doc.undo.undo()
+        self.assertEqual(net.get("LIbc").r_ohm_per_km, 0.16)
+        self.assertEqual(net.get("LIcd").r_ohm_per_km, 0.16)
+        ed.deleteLater()
+
+    def test_mixed_types_cannot_be_edited_together(self):
+        ed = self.editor()
+        ed.bind_many(["LIbc", "TI1"])
+        self.assertEqual(ed._widgets, {})
+        self.assertIn("different types", ed._title.text())
+        ed.deleteLater()
+
+    def test_context_menu_and_its_actions(self):
+        from psa.gui.mainwindow import MainWindow
+
+        win = MainWindow(self.doc)
+        item = win.scene.item_for("LDb")
+        menu = win.scene.build_context_menu(item)      # keep it alive while read
+        texts = [a.text() for a in menu.actions() if a.text()]
+        for wanted in ("Properties", "Cut", "Copy", "Duplicate", "Rotate 90 deg",
+                       "In service", "Delete"):
+            self.assertIn(wanted, texts)
+        bus_menu = win.scene.build_context_menu(win.scene.item_for("bus_b"))
+        bus_texts = [a.text() for a in bus_menu.actions()]
+        self.assertIn("Thevenin equivalent here", bus_texts)
+        self.assertIn("Switch vertical / horizontal", bus_texts)
+
+        item.setSelected(True)
+        win.context_action("toggle_service", "LDb")
+        self.assertFalse(self.doc.network.get("LDb").in_service)
+        win.context_action("rotate", "LDb")
+        self.assertEqual(self.doc.project.layout["LDb"]["rotation"], 90.0)
+        self.doc.undo.undo()
+        self.doc.undo.undo()
+        self.assertTrue(self.doc.network.get("LDb").in_service)
+        self.doc.undo.setClean()
+        win.close()
+
+    def test_escape_drops_the_palette_tool(self):
+        from PySide6.QtTest import QTest
+
+        from psa.gui.scene import SchematicView
+
+        view = SchematicView(SchematicScene(self.doc))
+        dropped = []
+        view.toolConsumed.connect(lambda: dropped.append(True))
+        view.arm_tool("load")
+        QTest.keyClick(view, Qt.Key.Key_Escape)
+        self.assertIsNone(view._pending_tool)
+        self.assertEqual(dropped, [True])
+        view.deleteLater()
+
+    def test_labels_stay_upright_on_rotated_symbols(self):
+        scene = SchematicScene(self.doc)
+        item = scene.item_for("LIcd")
+        item.setRotation(90)
+        t = item.label.sceneTransform()
+        self.assertAlmostEqual(t.m12(), 0.0, places=9)
+        self.assertAlmostEqual(t.m11(), 1.0, places=9)
+        # The name now sits beside the vertical branch, not across it.
+        name = item.label.sceneBoundingRect()
+        self.assertLess(name.right(), item.scenePos().x())
+
+    def test_dragging_a_connection_marks_the_real_target(self):
+        from PySide6.QtCore import QPointF as P
+        from PySide6.QtWidgets import QGraphicsSceneMouseEvent
+        from PySide6.QtCore import QEvent
+
+        scene = SchematicScene(self.doc)
+        load = scene.item_for("LDb")
+        scene.begin_connection(load.terminals[0])
+        target = scene.item_for("bus_e")
+        event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseMove)
+        event.setScenePos(target.scenePos())
+        scene.mouseMoveEvent(event)
+        self.assertEqual(target.highlight, "target")
+        self.assertEqual(scene.item_for("bus_b").highlight, "candidate")
+        scene._cancel_connection()
+        self.assertEqual(target.highlight, "")
+
+
 if __name__ == "__main__":
     unittest.main()
 

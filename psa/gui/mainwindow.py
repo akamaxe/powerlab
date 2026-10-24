@@ -6,6 +6,7 @@ import copy
 import traceback
 from pathlib import Path
 
+import shiboken6
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
         self.scene.statusMessage.connect(self.status.showMessage)
         self.scene.selectionChanged.connect(self._on_selection_changed)
         self.scene.studyAtBusRequested.connect(self.run_study_at_bus)
+        self.scene.contextActionRequested.connect(self.context_action)
         self.view.toolConsumed.connect(self.palette.clear_selection)
         self.palette.toolPicked.connect(self.view.arm_tool)
         self.variables.loadScriptRequested.connect(self.link_variable_script)
@@ -167,12 +169,12 @@ class MainWindow(QMainWindow):
         self.act_new = self._act("&New", self.new_project, QKeySequence.StandardKey.New)
         self.act_open = self._act("&Open...", self.open_project, QKeySequence.StandardKey.Open)
         self.act_save = self._act("&Save", self.save_project, QKeySequence.StandardKey.Save)
-        self.act_save_as = self._act("Save &As...", self.save_project_as,
-                                     QKeySequence.StandardKey.SaveAs)
+        # Explicit: the platform's standard keys for these are empty on Windows.
+        self.act_save_as = self._act("Save &As...", self.save_project_as, "Ctrl+Shift+S")
         self.act_example = self._act(
             "Load Assignment S1 example", self.load_example,
             tip="The EG2100 S1 network with A = 80, already validated")
-        self.act_quit = self._act("E&xit", self.close, QKeySequence.StandardKey.Quit)
+        self.act_quit = self._act("E&xit", self.close, "Ctrl+Q")
 
         self.act_undo = d.undo.createUndoAction(self, "&Undo")
         self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
@@ -298,6 +300,7 @@ class MainWindow(QMainWindow):
         self.scene.statusMessage.connect(self.status.showMessage)
         self.scene.selectionChanged.connect(self._on_selection_changed)
         self.scene.studyAtBusRequested.connect(self.run_study_at_bus)
+        self.scene.contextActionRequested.connect(self.context_action)
 
         self.properties.document = doc
         self.properties.bind(None)
@@ -482,6 +485,10 @@ class MainWindow(QMainWindow):
 
     def selected_ids(self) -> list[str]:
         from .items import ComponentItem
+        # A scene being destroyed clears its selection, and the signal can
+        # arrive after its C++ side is gone.
+        if not shiboken6.isValid(self.scene):
+            return []
         return [i.comp_id for i in self.scene.selectedItems()
                 if isinstance(i, ComponentItem)]
 
@@ -535,6 +542,38 @@ class MainWindow(QMainWindow):
             layout["orientation"] = "H" if layout.get("orientation", "V") == "V" else "V"
             self.document.undo.push(
                 SetLayout(self.document, obj_id, layout, "Flip bus"))
+
+    def toggle_in_service(self) -> None:
+        """Flip *In service* on the selection, in one undo step."""
+        from .commands import SetField
+
+        ids = self.selected_ids()
+        if not ids:
+            return
+        net = self.document.network
+        turn_on = not all(net.get(i).in_service for i in ids)
+        doc = self.document
+        doc.undo.beginMacro("Put in service" if turn_on else "Take out of service")
+        for obj_id in ids:
+            if net.get(obj_id).in_service != turn_on:
+                doc.undo.push(SetField(doc, obj_id, "in_service", turn_on, "In service"))
+        doc.undo.endMacro()
+
+    def context_action(self, action: str, obj_id: str) -> None:
+        """An entry of an element's right-click menu (it acts on the selection)."""
+        handlers = {
+            "properties": lambda: self._focus_properties(obj_id),
+            "rotate": self.rotate_selection,
+            "flip": self.flip_bus,
+            "toggle_service": self.toggle_in_service,
+            "delete": self.delete_selection,
+            "cut": getattr(self, "cut_selection", None),
+            "copy": getattr(self, "copy_selection", None),
+            "duplicate": getattr(self, "duplicate_selection", None),
+        }
+        handler = handlers.get(action)
+        if handler is not None:
+            handler()
 
     def edit_bases(self) -> None:
         dialog = BaseSettingsDialog(self.document, self)
@@ -789,10 +828,7 @@ class MainWindow(QMainWindow):
     def _on_selection_changed(self) -> None:
         ids = self.selected_ids()
         self._update_actions()
-        if len(ids) == 1:
-            self.properties.bind(ids[0])
-        elif not ids:
-            self.properties.bind(None)
+        self.properties.bind_many(ids)
 
     def _focus_properties(self, obj_id: str) -> None:
         self.properties.bind(obj_id)

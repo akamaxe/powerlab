@@ -34,6 +34,7 @@ class SchematicScene(QGraphicsScene):
     statusMessage = Signal(str)
     requestProperties = Signal(str)
     studyAtBusRequested = Signal(str, str)  # study key, bus id
+    contextActionRequested = Signal(str, str)   # action, element id
 
     def __init__(self, document, parent=None):
         # Parent the scene to the document (a QObject) when no parent is given.
@@ -286,9 +287,7 @@ class SchematicScene(QGraphicsScene):
             target = self._bus_under(event.scenePos())
             for item in self._items.values():
                 if isinstance(item, BusItem):
-                    item.set_highlight(True)
-            if target is not None:
-                target.set_highlight(True)
+                    item.set_highlight("target" if item is target else "candidate")
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -370,19 +369,49 @@ class SchematicScene(QGraphicsScene):
         item = self.itemAt(event.scenePos(), QTransform())
         while item is not None and not isinstance(item, ComponentItem):
             item = item.parentItem()
-        if not isinstance(item, BusItem):
+        if not isinstance(item, ComponentItem):
             super().contextMenuEvent(event)
             return
-        menu = QMenu()
-        for key, label in (("thevenin", "Thevenin equivalent here"),
-                           ("short_circuit", "Three-phase short circuit here")):
-            menu.addAction(label).triggered.connect(
-                lambda _=False, k=key, b=item.comp_id: self.studyAtBusRequested.emit(k, b))
-        menu.addSeparator()
-        menu.addAction("Properties").triggered.connect(
-            lambda _=False, b=item.comp_id: self.requestProperties.emit(b))
-        menu.exec(event.screenPos())
+        if not item.isSelected():
+            self.clearSelection()
+            item.setSelected(True)
+        self.selectionInfoChanged.emit(item.comp_id)
+        self.build_context_menu(item).exec(event.screenPos())
         event.accept()
+
+    def build_context_menu(self, item: ComponentItem) -> QMenu:
+        """The right-click menu of one element (the selection it belongs to)."""
+        menu = QMenu()
+        obj_id = item.comp_id
+
+        def act(label, action):
+            a = menu.addAction(label)
+            a.triggered.connect(
+                lambda _=False: self.contextActionRequested.emit(action, obj_id))
+            return a
+
+        if isinstance(item, BusItem):
+            for key, label in (("thevenin", "Thevenin equivalent here"),
+                               ("short_circuit", "Three-phase short circuit here")):
+                menu.addAction(label).triggered.connect(
+                    lambda _=False, k=key: self.studyAtBusRequested.emit(k, obj_id))
+            menu.addSeparator()
+        act("Properties", "properties")
+        menu.addSeparator()
+        act("Cut", "cut")
+        act("Copy", "copy")
+        act("Duplicate", "duplicate")
+        menu.addSeparator()
+        if isinstance(item, BusItem):
+            act("Switch vertical / horizontal", "flip")
+        else:
+            act("Rotate 90 deg", "rotate")
+        in_service = act("In service", "toggle_service")
+        in_service.setCheckable(True)
+        in_service.setChecked(item.is_in_service())
+        menu.addSeparator()
+        act("Delete", "delete")
+        return menu
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self._connecting is not None:
@@ -641,6 +670,11 @@ class SchematicView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self._pending_tool:
+            self.arm_tool(None)
+            self.toolConsumed.emit()
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -178,13 +179,24 @@ class ParametricLineEdit(QLineEdit):
 
 
 class PropertyEditor(QScrollArea):
-    """Form bound to the currently selected object, generated from FIELDS."""
+    """Form bound to the selected object(s), generated from their FIELDS.
+
+    Changes to the model update the widgets in place, so the field being
+    edited keeps the keyboard focus; the form is only rebuilt when the set of
+    fields changes (another object, a mode that shows other fields, a new
+    bus). With several objects of one type selected, a commit applies to all
+    of them in one undo step; fields whose values differ show empty.
+    """
+
+    #: Placeholder of a field whose value differs across the selection.
+    SEVERAL = "(several values)"
 
     def __init__(self, document, parent=None):
         super().__init__(parent)
         self.document = document
-        self.obj_id: str | None = None
+        self.obj_ids: list[str] = []
         self._building = False
+        self._shape = None
 
         self.setWidgetResizable(True)
         self._body = QWidget()
@@ -196,18 +208,19 @@ class PropertyEditor(QScrollArea):
         self._title = QLabel("Nothing selected")
         self._title.setObjectName("headline")
         self._title.setWordWrap(True)
+        self._title.setTextFormat(Qt.TextFormat.RichText)
         self._layout.addWidget(self._title)
 
         self._form_host = QWidget()
-        self._form = QFormLayout(self._form_host)
-        self._form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._form.setContentsMargins(0, 0, 0, 0)
-        self._form.setSpacing(5)
+        self._host_layout = QVBoxLayout(self._form_host)
+        self._host_layout.setContentsMargins(0, 0, 0, 0)
+        self._host_layout.setSpacing(8)
         self._layout.addWidget(self._form_host)
         self._layout.addStretch(1)
 
         self._widgets: dict[str, QWidget] = {}
         self._value_hints: dict[str, QLabel] = {}
+        self._specs: dict[str, FieldSpec] = {}
 
         document.componentChanged.connect(self._on_changed)
         document.connectivityChanged.connect(self._on_changed)
@@ -216,82 +229,179 @@ class PropertyEditor(QScrollArea):
 
     # -- binding ------------------------------------------------------- #
 
+    @property
+    def obj_id(self) -> str | None:
+        """The bound object when exactly one is bound."""
+        return self.obj_ids[0] if len(self.obj_ids) == 1 else None
+
+    def _objects(self) -> list:
+        net = self.document.network
+        return [net.get(i) for i in self.obj_ids if i in net]
+
     def rebind(self) -> None:
-        """Re-read whatever is currently selected."""
-        self.bind(self.obj_id)
+        """Re-read whatever is bound: in place when the fields are the same."""
+        self.bind_many(self.obj_ids)
 
     def _on_changed(self, obj_id: str) -> None:
-        if obj_id == self.obj_id:
-            self.bind(obj_id)
+        if obj_id in self.obj_ids:
+            self.bind_many(self.obj_ids)
 
     def bind(self, obj_id: str | None) -> None:
-        self.obj_id = obj_id
-        self._clear_form()
-        if not obj_id or obj_id not in self.document.network:
-            self._title.setText("Nothing selected")
-            return
-        obj = self.document.network.get(obj_id)
-        self._title.setText(f"{obj.name or obj.id}   <small>({obj.TYPE})</small>")
-        self._title.setTextFormat(Qt.TextFormat.RichText)
+        self.bind_many([obj_id] if obj_id else [])
 
+    def bind_many(self, obj_ids: list[str]) -> None:
+        net = self.document.network
+        ids = [i for i in obj_ids if i in net]
+        objs = [net.get(i) for i in ids]
+        if len({type(o) for o in objs}) > 1:
+            self.obj_ids = ids
+            self._show_message(f"{len(ids)} objects of different types selected. "
+                               f"Select objects of one type to edit them together.")
+            return
+        if not objs:
+            self.obj_ids = []
+            self._show_message("Nothing selected")
+            return
+        specs = [s for s in field_specs(objs[0])
+                 if all(s.is_visible(o) for o in objs)
+                 and (len(objs) == 1 or (s.kind != "bus" and s.name != "name"))]
+        shape = (tuple(ids), tuple(s.name for s in specs),
+                 tuple(self.document.bus_choices()))
+        self.obj_ids = ids
+        first = objs[0]
+        if len(objs) == 1:
+            self._title.setText(f"{first.name or first.id}   <small>({first.TYPE})</small>")
+        else:
+            self._title.setText(f"{len(objs)} objects   <small>({first.TYPE})</small>")
+        if shape != self._shape:
+            self._build(objs, specs)
+            self._shape = shape
+        else:
+            self._refresh(objs)
+
+    def _show_message(self, text: str) -> None:
+        self._clear_form()
+        self._shape = None
+        self._title.setText(text)
+
+    def _group_of(self, spec: FieldSpec) -> str:
+        if spec.name in ("name", "in_service"):
+            return "General"
+        if spec.kind == "bus":
+            return "Connection"
+        return spec.group if spec.group != "General" else "Parameters"
+
+    def _build(self, objs: list, specs: list[FieldSpec]) -> None:
+        self._clear_form()
         self._building = True
         scope = self.document.params.values()
-        for spec in field_specs(obj):
-            if not spec.is_visible(obj):
-                continue
-            widget, hint = self._make_widget(obj, spec, scope)
-            if widget is None:
-                continue
+        forms: dict[str, QFormLayout] = {}
+        for spec in specs:
+            group = self._group_of(spec)
+            if group not in forms:
+                box = QGroupBox(group)
+                form = QFormLayout(box)
+                form.setLabelAlignment(Qt.AlignmentFlag.AlignRight
+                                       | Qt.AlignmentFlag.AlignVCenter)
+                form.setSpacing(5)
+                self._host_layout.addWidget(box)
+                forms[group] = form
+            widget, hint = self._make_widget(spec)
             self._widgets[spec.name] = widget
+            self._specs[spec.name] = spec
+            if hint is not None:
+                self._value_hints[spec.name] = hint
             label = spec.label + (f"  [{spec.unit}]" if spec.unit else "")
             if hint is not None:
                 row = QWidget()
-                box = QVBoxLayout(row)
-                box.setContentsMargins(0, 0, 0, 0)
-                box.setSpacing(1)
-                box.addWidget(widget)
-                box.addWidget(hint)
-                self._value_hints[spec.name] = hint
-                self._form.addRow(label, row)
+                box_layout = QVBoxLayout(row)
+                box_layout.setContentsMargins(0, 0, 0, 0)
+                box_layout.setSpacing(1)
+                box_layout.addWidget(widget)
+                box_layout.addWidget(hint)
+                forms[group].addRow(label, row)
             else:
-                self._form.addRow(label, widget)
+                forms[group].addRow(label, widget)
             if spec.tooltip:
                 widget.setToolTip(spec.tooltip)
-        # Identity is read-only but worth showing.
-        ident = QLineEdit(obj.id)
-        ident.setReadOnly(True)
-        ident.setToolTip("Internal id, used by parametric bindings")
-        self._form.addRow("id", ident)
+        if len(objs) == 1:
+            ident = QLineEdit(objs[0].id)
+            ident.setReadOnly(True)
+            ident.setToolTip("Internal id, used by parametric bindings")
+            forms.setdefault("General", QFormLayout()).addRow("id", ident)
+        self._refresh(objs, scope)
         self._building = False
 
     def _clear_form(self) -> None:
-        while self._form.count():
-            item = self._form.takeAt(0)
+        while self._host_layout.count():
+            item = self._host_layout.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.deleteLater()
         self._widgets.clear()
         self._value_hints.clear()
+        self._specs.clear()
+
+    # -- values -------------------------------------------------------- #
+
+    def _common(self, objs: list, name: str):
+        """``(value, same)``: the first object's value and whether all agree."""
+        values = [getattr(o, name, None) for o in objs]
+        return values[0], all(v == values[0] for v in values[1:])
+
+    def _refresh(self, objs: list | None = None, scope: dict | None = None) -> None:
+        """Push the model's values into the existing widgets, without signals."""
+        objs = objs if objs is not None else self._objects()
+        if not objs:
+            return
+        scope = scope if scope is not None else self.document.params.values()
+        params = self.document.params
+        for name, widget in self._widgets.items():
+            spec = self._specs[name]
+            value, same = self._common(objs, name)
+            widget.blockSignals(True)
+            try:
+                if isinstance(widget, QCheckBox):
+                    widget.setTristate(not same)
+                    if same:
+                        widget.setChecked(bool(value))
+                    else:
+                        widget.setCheckState(Qt.CheckState.PartiallyChecked)
+                elif isinstance(widget, QComboBox):
+                    index = (widget.findData(value or "") if spec.kind == "bus"
+                             else widget.findText(str(value)))
+                    widget.setCurrentIndex(index if same and index >= 0 else -1)
+                elif isinstance(widget, QLineEdit) and not widget.hasFocus():
+                    exprs = {params.expression_for(o.id, name) for o in objs}
+                    expr = next(iter(exprs)) if len(exprs) == 1 else None
+                    if not same and not expr:
+                        widget.setText("")
+                        widget.setPlaceholderText(self.SEVERAL)
+                    elif spec.kind == "str":
+                        widget.setText("" if value is None else str(value))
+                    else:
+                        widget.setText(expr if expr else _num_text(value))
+                    if isinstance(widget, ParametricLineEdit):
+                        widget.set_bound(bool(expr))
+                    hint = self._value_hints.get(name)
+                    if hint is not None:
+                        self._update_hint(hint, expr, value, scope)
+            finally:
+                widget.blockSignals(False)
 
     # -- widget construction ------------------------------------------- #
 
-    def _make_widget(self, obj, spec: FieldSpec, scope: dict):
-        value = getattr(obj, spec.name, None)
-
+    def _make_widget(self, spec: FieldSpec):
         if spec.kind == "bool":
             w = QCheckBox()
-            w.setChecked(bool(value))
-            w.toggled.connect(
-                lambda checked, n=spec.name: self._commit(n, checked))
+            w.toggled.connect(lambda checked, n=spec.name: self._commit(n, checked))
             return w, None
 
         if spec.kind == "choice":
             w = QComboBox()
             w.addItems(list(spec.choices))
-            if value in spec.choices:
-                w.setCurrentText(value)
             w.currentTextChanged.connect(
-                lambda text, n=spec.name: self._commit(n, text))
+                lambda text, n=spec.name: self._commit(n, text) if text else None)
             return w, None
 
         if spec.kind == "bus":
@@ -299,28 +409,23 @@ class PropertyEditor(QScrollArea):
             w.addItem("(not connected)", "")
             for bus_id, label in self.document.bus_choices():
                 w.addItem(label, bus_id)
-            index = w.findData(value or "")
-            w.setCurrentIndex(max(0, index))
             w.currentIndexChanged.connect(
                 lambda _i, n=spec.name, ww=w: self._commit_bus(n, ww.currentData()))
             return w, None
 
         if spec.kind == "str":
-            w = QLineEdit("" if value is None else str(value))
+            w = QLineEdit()
             w.editingFinished.connect(
                 lambda n=spec.name, ww=w: self._commit(n, ww.text()))
             return w, None
 
         # Numeric, possibly parametric.
-        expr = self.document.params.expression_for(obj.id, spec.name)
         w = ParametricLineEdit()
-        w.setText(expr if expr else _num_text(value))
-        w.set_bound(bool(expr))
         hint = None
         if spec.parametric:
             hint = QLabel("")
             hint.setStyleSheet("color:#5b666e; font-size:10px;")
-            self._update_hint(hint, expr, value, scope)
+            hint.setVisible(False)
             w.setToolTip((spec.tooltip + "\n\n" if spec.tooltip else "")
                          + "Type a number, or an expression using your project "
                            "variables, e.g. (217 + A)/1000")
@@ -344,13 +449,26 @@ class PropertyEditor(QScrollArea):
 
     # -- commits ------------------------------------------------------- #
 
+    def _targets(self, field: str, value) -> list[str]:
+        """The bound objects whose ``field`` differs from ``value``."""
+        net = self.document.network
+        return [i for i in self.obj_ids if i in net and getattr(net.get(i), field) != value]
+
     def _commit(self, field: str, value) -> None:
-        if self._building or not self.obj_id:
+        if self._building or not self.obj_ids:
             return
-        obj = self.document.network.get(self.obj_id)
-        if getattr(obj, field) == value:
+        targets = self._targets(field, value)
+        if not targets:
             return
-        self.document.undo.push(SetField(self.document, self.obj_id, field, value))
+        doc = self.document
+        spec = self._specs.get(field)
+        label = spec.label if spec else field
+        doc.undo.beginMacro(f"Set {label}")
+        try:
+            for obj_id in targets:
+                doc.undo.push(SetField(doc, obj_id, field, value, label))
+        finally:
+            doc.undo.endMacro()
 
     def _commit_bus(self, field: str, bus_id) -> None:
         if self._building or not self.obj_id:
@@ -361,80 +479,88 @@ class PropertyEditor(QScrollArea):
             return
         self.document.undo.push(Connect(self.document, self.obj_id, field, new))
 
+    def _invalid(self, widget, message: str) -> None:
+        if widget is not None:
+            widget.set_invalid(True)
+            widget.setToolTip(message)
+
     def _commit_numeric(self, field: str, spec: FieldSpec, text: str) -> None:
-        if self._building or not self.obj_id:
+        if self._building or not self.obj_ids:
             return
         widget = self._widgets.get(field)
         text = text.strip()
         doc = self.document
-        obj = doc.network.get(self.obj_id)
-        current_expr = doc.params.expression_for(self.obj_id, field)
+        net = doc.network
+        objs = self._objects()
+        exprs = {doc.params.expression_for(o.id, field) for o in objs}
+        current_expr = next(iter(exprs)) if len(exprs) == 1 else None
+        value0, same = self._common(objs, field)
 
         if text == "":
-            if current_expr:
-                doc.undo.push(SetBinding(doc, self.obj_id, field, None))
-            if getattr(obj, field) is not None and spec.name in (
-                    "u_base_kv", "u_nominal_kv"):
-                doc.undo.push(SetField(doc, self.obj_id, field, None))
+            if len(objs) > 1 and not same:
+                return                          # left "(several values)" alone
+            doc.undo.beginMacro(f"Clear {spec.label}")
+            try:
+                for o in objs:
+                    if doc.params.expression_for(o.id, field):
+                        doc.undo.push(SetBinding(doc, o.id, field, None))
+                    if getattr(o, field) is not None and spec.name in (
+                            "u_base_kv", "u_nominal_kv", "un_kv"):
+                        doc.undo.push(SetField(doc, o.id, field, None))
+            finally:
+                doc.undo.endMacro()
             if widget:
                 widget.set_invalid(False)
             return
 
         # Focus leaving an untouched field fires editingFinished too. Comparing
         # the text, not the value, also avoids re-committing a rounded display.
-        if text == (current_expr or _num_text(getattr(obj, field))):
+        if same and text == (current_expr or _num_text(value0)):
             return
 
         plain = _try_complex(text) if spec.kind == "complex" else _try_float(text)
-        if plain is not None:
-            try:
-                value = _coerce_numeric(spec, plain)
-            except (TypeError, ValueError, OverflowError) as exc:
-                if widget:
-                    widget.set_invalid(True)
-                    widget.setToolTip(str(exc))
-                return
-            if widget:
-                widget.set_invalid(False)
-                widget.set_bound(False)
-            self._push_numeric(spec, field, bool(current_expr), None, value)
-            return
-
-        if not spec.parametric:
-            if widget:
-                widget.set_invalid(True)
-            return
-
+        expr = None
         try:
-            value = safe_eval(text, doc.params.values(), target=field)
-            value = _coerce_numeric(spec, value)
+            if plain is not None:
+                value = _coerce_numeric(spec, plain)
+            elif spec.parametric:
+                value = _coerce_numeric(spec, safe_eval(text, doc.params.values(),
+                                                        target=field))
+                expr = text
+            else:
+                self._invalid(widget, f"{spec.label} takes a number.")
+                return
         except (ExpressionError, TypeError, ValueError, OverflowError) as exc:
-            if widget:
-                widget.set_invalid(True)
-                widget.setToolTip(str(exc))
+            self._invalid(widget, str(exc))
             return
+        if not isinstance(value, complex):
+            if spec.minimum is not None and value < spec.minimum:
+                self._invalid(widget, f"{spec.label} must be at least {spec.minimum:g}.")
+                return
+            if spec.maximum is not None and value > spec.maximum:
+                self._invalid(widget, f"{spec.label} must be at most {spec.maximum:g}.")
+                return
 
         if widget:
             widget.set_invalid(False)
-            widget.set_bound(True)
-        self._push_numeric(spec, field, text != current_expr, text, value)
-
-    def _push_numeric(self, spec: FieldSpec, field: str, binding_changes: bool,
-                      expr: str | None, value) -> None:
-        """One undo step for a binding and/or value change, or nothing at all."""
-        doc = self.document
-        obj_id = self.obj_id
-        value_changes = getattr(doc.network.get(obj_id), field) != value
-        if not binding_changes and not value_changes:
+            widget.set_bound(expr is not None)
+            widget.setToolTip(spec.tooltip or "")
+        # One undo step for every binding and value change, or nothing at all.
+        changes = []
+        for o in objs:
+            binding_changes = doc.params.expression_for(o.id, field) != expr
+            value_changes = getattr(net.get(o.id), field) != value
+            if binding_changes or value_changes:
+                changes.append((o.id, binding_changes, value_changes))
+        if not changes:
             return
-        # The value is already converted, so nothing below can raise half-way
-        # through; the finally still guarantees the macro is always closed.
         doc.undo.beginMacro(f"Set {spec.label}")
         try:
-            if binding_changes:
-                doc.undo.push(SetBinding(doc, obj_id, field, expr))
-            if value_changes:
-                doc.undo.push(SetField(doc, obj_id, field, value, spec.label))
+            for obj_id, binding_changes, value_changes in changes:
+                if binding_changes:
+                    doc.undo.push(SetBinding(doc, obj_id, field, expr))
+                if value_changes:
+                    doc.undo.push(SetField(doc, obj_id, field, value, spec.label))
         finally:
             doc.undo.endMacro()
 

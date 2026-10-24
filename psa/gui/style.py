@@ -87,9 +87,15 @@ def symbol_pen(selected: bool = False, hovered: bool = False,
 
 
 def bus_pen(selected: bool = False, hovered: bool = False,
-            in_service: bool = True, highlight: bool = False) -> QPen:
-    if highlight:
+            in_service: bool = True, highlight: str = "") -> QPen:
+    """``highlight``: ``"target"`` (the bus a connection would land on) or
+    ``"candidate"`` (any bus it could land on) while a terminal is dragged."""
+    if highlight == "target":
         return pen(VALID_TARGET, BUS_WIDTH + 3.0)
+    if highlight:
+        faint = QColor(VALID_TARGET)
+        faint.setAlpha(110)
+        return pen(faint, BUS_WIDTH + 1.0)
     if selected:
         return pen(SELECTION, BUS_WIDTH)
     if hovered:
