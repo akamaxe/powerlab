@@ -1,0 +1,262 @@
+{
+  "format": "psa-project",
+  "version": 1,
+  "meta": {
+    "title": "EG2100 Assignment S1, A = 80",
+    "notes": "Factory fed from a 40 kV grid. Reference answers: Z_I = 22.5232 + 11.1298i pu, U_e = 5.9715 kV. Set A = 0 to reproduce the answer printed in the assignment."
+  },
+  "network": {
+    "s_base_mva": 10.0,
+    "f_hz": 50.0,
+    "base_ref": {
+      "bus": "bus_a",
+      "u_base_kv": 40.0
+    },
+    "buses": [
+      {
+        "id": "bus_a",
+        "name": "a",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "bus_b",
+        "name": "b",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "bus_c",
+        "name": "c",
+        "in_service": true,
+        "kind": "junction",
+        "u_base_kv": null
+      },
+      {
+        "id": "bus_d",
+        "name": "d",
+        "in_service": true,
+        "kind": "junction",
+        "u_base_kv": null
+      },
+      {
+        "id": "bus_e",
+        "name": "e",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      }
+    ],
+    "components": [
+      {
+        "type": "source",
+        "id": "SRC",
+        "bus": "bus_a",
+        "name": "Grid",
+        "in_service": true,
+        "u_pu": 1.0,
+        "theta_deg": 0.0,
+        "z_th_ohm": [
+          0.0,
+          0.0
+        ],
+        "is_slack": true
+      },
+      {
+        "type": "transformer",
+        "id": "TI1",
+        "bus_hv": "bus_a",
+        "bus_lv": "bus_b",
+        "name": "TI1",
+        "in_service": true,
+        "sn_mva": 6.0,
+        "u1n_kv": 40.0,
+        "u2n_kv": 12.0,
+        "x_pct": 7.0,
+        "r_pct": 0.0,
+        "tap": 1.0,
+        "referred_side": "lv"
+      },
+      {
+        "type": "transformer",
+        "id": "TI2",
+        "bus_hv": "bus_d",
+        "bus_lv": "bus_e",
+        "name": "TI2",
+        "in_service": true,
+        "sn_mva": 5.0,
+        "u1n_kv": 12.0,
+        "u2n_kv": 6.0,
+        "x_pct": 8.0,
+        "r_pct": 0.0,
+        "tap": 1.0,
+        "referred_side": "lv"
+      },
+      {
+        "type": "line",
+        "id": "LIbc",
+        "bus_from": "bus_b",
+        "bus_to": "bus_c",
+        "name": "LIbc",
+        "in_service": true,
+        "r_ohm_per_km": 0.16,
+        "x_ohm_per_km": 0.08,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 0.297,
+        "n_parallel": 2
+      },
+      {
+        "type": "line",
+        "id": "LIcd",
+        "bus_from": "bus_c",
+        "bus_to": "bus_d",
+        "name": "LIcd",
+        "in_service": true,
+        "r_ohm_per_km": 0.16,
+        "x_ohm_per_km": 0.08,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 0.297,
+        "n_parallel": 1
+      },
+      {
+        "type": "load",
+        "id": "LDb",
+        "bus": "bus_b",
+        "name": "LDb",
+        "in_service": true,
+        "p_mw": 0.037,
+        "cos_phi": 0.9,
+        "pf_sign": "lag",
+        "u_nominal_kv": 12.0,
+        "model": "constant_impedance"
+      },
+      {
+        "type": "load",
+        "id": "LDe",
+        "bus": "bus_e",
+        "name": "LDe",
+        "in_service": true,
+        "p_mw": 0.323,
+        "cos_phi": 0.9,
+        "pf_sign": "lag",
+        "u_nominal_kv": 6.0,
+        "model": "constant_impedance"
+      }
+    ]
+  },
+  "parameters": {
+    "script_path": null,
+    "project_vars": [
+      [
+        "A",
+        "80.0"
+      ]
+    ],
+    "bindings": {
+      "LIbc.length_km": "(217 + A)/1000",
+      "LIcd.length_km": "(217 + A)/1000",
+      "LIbc.n_parallel": "2",
+      "LDb.p_mw": "(117 - A)/1000",
+      "LDe.p_mw": "(243 + A)/1000"
+    }
+  },
+  "layout": {
+    "grid": 10,
+    "items": {
+      "bus_a": {
+        "x": 0,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "bus_b": {
+        "x": 180,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "bus_c": {
+        "x": 360,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "bus_d": {
+        "x": 540,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "bus_e": {
+        "x": 720,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "SRC": {
+        "x": -90,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "TI1": {
+        "x": 90,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "TI2": {
+        "x": 630,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "LIbc": {
+        "x": 270,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "LIcd": {
+        "x": 450,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "LDb": {
+        "x": 180,
+        "y": 110,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "LDe": {
+        "x": 720,
+        "y": 110,
+        "rotation": 0,
+        "mirrored": false
+      }
+    },
+    "wires": {}
+  },
+  "studies": {
+    "s1a": {
+      "bus_i": "bus_a",
+      "bus_j": "bus_e"
+    },
+    "s1b": {
+      "bus": "bus_a",
+      "far_bus": "bus_e"
+    },
+    "s1c": {
+      "bus": "bus_e"
+    }
+  },
+  "view": {
+    "overlay": true,
+    "overlay_mode": "kv_pu"
+  }
+}
