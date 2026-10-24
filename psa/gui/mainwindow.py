@@ -26,6 +26,7 @@ from ..core.params import Parameters
 from ..core.results import Result
 from ..core.serialize import Project
 from ..core.study import STUDY_REGISTRY, default_cases, run_case, studies_by_group
+from . import clipboard
 from . import style as st
 from .commands import SetCases, SetNetworkSettings, delete_objects
 from .dialogs import BaseSettingsDialog, CaseDialog
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.document = document or blank_document()
         self._annotated: Result | None = None
+        self._paste_count = 0
         self.setWindowTitle("PowerLab")
         self.resize(1500, 950)
 
@@ -184,6 +186,15 @@ class MainWindow(QMainWindow):
                                     QKeySequence.StandardKey.Delete)
         self.act_select_all = self._act("Select &All", self.select_all,
                                         QKeySequence.StandardKey.SelectAll)
+        self.act_cut = self._act("Cu&t", self.cut_selection, QKeySequence.StandardKey.Cut)
+        self.act_copy = self._act("&Copy", self.copy_selection, QKeySequence.StandardKey.Copy)
+        self.act_paste = self._act("&Paste", self.paste, QKeySequence.StandardKey.Paste)
+        self.act_duplicate = self._act("D&uplicate", self.duplicate_selection, "Ctrl+D")
+        # Only while the canvas has the focus: Ctrl+C in a result table copies
+        # the table, Ctrl+V in a field pastes text.
+        for action in (self.act_cut, self.act_copy, self.act_paste, self.act_duplicate):
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            self.view.addAction(action)
 
         self.act_zoom_in = self._act("Zoom &In", lambda: self.view.zoom_by(1.2),
                                      QKeySequence.StandardKey.ZoomIn)
@@ -231,6 +242,9 @@ class MainWindow(QMainWindow):
 
         m = bar.addMenu("&Edit")
         for a in (self.act_undo, self.act_redo):
+            m.addAction(a)
+        m.addSeparator()
+        for a in (self.act_cut, self.act_copy, self.act_paste, self.act_duplicate):
             m.addAction(a)
         m.addSeparator()
         for a in (self.act_delete, self.act_select_all):
@@ -324,6 +338,10 @@ class MainWindow(QMainWindow):
         self.act_undo.setEnabled(False)
         self.act_redo.setEnabled(False)
         self.menuBar().clear()
+        # The canvas-only shortcuts live on the view; the rebuilt actions would
+        # otherwise sit next to the old ones and make every shortcut ambiguous.
+        for action in self.view.actions():
+            self.view.removeAction(action)
         self._build_actions()
         self._build_menus()
         self._build_toolbar()
@@ -519,6 +537,41 @@ class MainWindow(QMainWindow):
         delete_objects(self.document, ids)
         self.properties.bind(None)
 
+    # -- clipboard ------------------------------------------------------ #
+
+    def copy_selection(self) -> None:
+        ids = self.selected_ids()
+        if ids:
+            clipboard.to_clipboard(clipboard.copy_payload(self.document, ids))
+            self._paste_count = 0
+            self.status.showMessage(f"Copied {len(ids)} object(s)", 3000)
+
+    def cut_selection(self) -> None:
+        if self.selected_ids():
+            self.copy_selection()
+            self.delete_selection()
+
+    def paste(self) -> None:
+        payload = clipboard.from_clipboard()
+        if payload is None:
+            return
+        self._paste_count += 1
+        self._select(clipboard.paste_payload(self.document, payload,
+                                             offset=40.0 * self._paste_count))
+
+    def duplicate_selection(self) -> None:
+        ids = self.selected_ids()
+        if ids:
+            payload = clipboard.copy_payload(self.document, ids)
+            self._select(clipboard.paste_payload(self.document, payload))
+
+    def _select(self, ids: list[str]) -> None:
+        self.scene.clearSelection()
+        for obj_id in ids:
+            item = self.scene.item_for(obj_id)
+            if item is not None:
+                item.setSelected(True)
+
     def rotate_selection(self) -> None:
         from .items import BusItem
         for obj_id in self.selected_ids():
@@ -567,9 +620,9 @@ class MainWindow(QMainWindow):
             "flip": self.flip_bus,
             "toggle_service": self.toggle_in_service,
             "delete": self.delete_selection,
-            "cut": getattr(self, "cut_selection", None),
-            "copy": getattr(self, "copy_selection", None),
-            "duplicate": getattr(self, "duplicate_selection", None),
+            "cut": self.cut_selection,
+            "copy": self.copy_selection,
+            "duplicate": self.duplicate_selection,
         }
         handler = handlers.get(action)
         if handler is not None:
@@ -849,6 +902,8 @@ class MainWindow(QMainWindow):
         has_buses = bool(self.document.network.buses)
         selected = bool(self.selected_ids())
         self.act_delete.setEnabled(selected)
+        for action in (self.act_cut, self.act_copy, self.act_duplicate):
+            action.setEnabled(selected)
         self.act_rotate.setEnabled(selected)
         self.act_orient.setEnabled(selected)
         self.act_run_all.setEnabled(has_buses)

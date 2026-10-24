@@ -844,6 +844,69 @@ class EditorErgonomics(unittest.TestCase):
         self.assertEqual(target.highlight, "")
 
 
+class Clipboard(unittest.TestCase):
+    """Copy, cut, paste and duplicate."""
+
+    def test_duplicate_keeps_internal_connections_only(self):
+        from psa.gui.clipboard import copy_payload, paste_payload
+
+        doc = s1_document()
+        net = doc.network
+        before = doc.undo.count()
+        new_ids = paste_payload(doc, copy_payload(doc, ["bus_d", "TI2", "bus_e", "LDe"]))
+        self.assertEqual(doc.undo.count(), before + 1, "one undo step")
+        self.assertEqual(len(new_ids), 4)
+        new = {net.get(i).TYPE: net.get(i) for i in new_ids if i in net.components}
+        buses = [i for i in new_ids if i in net.buses]
+        self.assertEqual(sorted({new["transformer"].bus_hv, new["transformer"].bus_lv}),
+                         sorted(buses))
+        self.assertIn(new["load"].bus, buses)
+        self.assertEqual(doc.params.expression_for(new["load"].id, "p_mw"),
+                         "(243 + A)/1000", "bindings follow the copy")
+        self.assertEqual(doc.project.layout[new["load"].id]["x"],
+                         doc.project.layout["LDe"]["x"] + 40.0)
+        doc.undo.undo()
+        for obj_id in new_ids:
+            self.assertNotIn(obj_id, net)
+
+    def test_a_copy_without_its_bus_is_left_unconnected(self):
+        from psa.gui.clipboard import copy_payload, paste_payload
+
+        doc = s1_document()
+        (new_id,) = paste_payload(doc, copy_payload(doc, ["LDb"]))
+        self.assertEqual(doc.network.get(new_id).bus, "")
+        self.assertEqual(doc.network.get(new_id).p_mw, doc.network.get("LDb").p_mw)
+
+    def test_window_copy_paste_and_cut(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = s1_document()
+        win = MainWindow(doc)
+        n0 = len(list(doc.network))
+        win._select(["LDb"])
+        win.copy_selection()
+        win.paste()
+        win.paste()
+        self.assertEqual(len(list(doc.network)), n0 + 2)
+        pasted = win.selected_ids()
+        self.assertEqual(len(pasted), 1)
+        self.assertEqual(doc.project.layout[pasted[0]]["y"],
+                         doc.project.layout["LDb"]["y"] + 80.0, "second paste cascades")
+        win.cut_selection()
+        self.assertEqual(len(list(doc.network)), n0 + 1)
+        doc.undo.setClean()
+        win.close()
+
+    def test_swapping_documents_keeps_shortcuts_unambiguous(self):
+        from psa.gui.mainwindow import MainWindow
+
+        win = MainWindow(s1_document())
+        n_actions = len(win.view.actions())
+        win.new_project()
+        self.assertEqual(len(win.view.actions()), n_actions)
+        win.close()
+
+
 if __name__ == "__main__":
     unittest.main()
 
