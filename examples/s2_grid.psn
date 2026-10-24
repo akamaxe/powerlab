@@ -1,0 +1,474 @@
+{
+  "format": "psa-project",
+  "version": 2,
+  "meta": {
+    "title": "EG2100 Assignment S2, A = 80",
+    "notes": "Meshed 40 kV grid fed from 70 kV. Reference answers (A = 80): U_Th7 = 0.9348 < -3.0196 pu, Z_Th7 = 0.1645 + 0.0677i pu, I_sc7 = 0.7584 kA. Set A = 0 for the answer printed in the assignment."
+  },
+  "network": {
+    "s_base_mva": 10.0,
+    "f_hz": 50.0,
+    "base_ref": {
+      "bus": "b7",
+      "u_base_kv": 40.0
+    },
+    "buses": [
+      {
+        "id": "b1",
+        "name": "1",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b2",
+        "name": "2",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b3",
+        "name": "3",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b4",
+        "name": "4",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b5",
+        "name": "5",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b6",
+        "name": "6",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b7",
+        "name": "7",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      },
+      {
+        "id": "b8",
+        "name": "8",
+        "in_service": true,
+        "kind": "busbar",
+        "u_base_kv": null
+      }
+    ],
+    "components": [
+      {
+        "type": "source",
+        "id": "GRID",
+        "bus": "b1",
+        "name": "Grid 70 kV",
+        "in_service": true,
+        "u_pu": 1.0,
+        "theta_deg": 0.0,
+        "z_mode": "ik",
+        "z_th_ohm": [
+          0.0,
+          0.0
+        ],
+        "ik_ka": 25.0,
+        "sk_mva": 0.0,
+        "cos_phi": 0.15,
+        "un_kv": 70.0,
+        "is_slack": true
+      },
+      {
+        "type": "transformer",
+        "id": "T1",
+        "bus_hv": "b1",
+        "bus_lv": "b2",
+        "name": "T1",
+        "in_service": true,
+        "sn_mva": 81.5,
+        "u1n_kv": 70.0,
+        "u2n_kv": 40.0,
+        "x_pct": 8.0,
+        "r_pct": 0.0,
+        "tap": 1.0,
+        "referred_side": "lv"
+      },
+      {
+        "type": "line",
+        "id": "L28",
+        "bus_from": "b2",
+        "bus_to": "b8",
+        "name": "L28",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 68.5,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L23",
+        "bus_from": "b2",
+        "bus_to": "b3",
+        "name": "L23",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 47.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L34",
+        "bus_from": "b3",
+        "bus_to": "b4",
+        "name": "L34",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 63.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L45",
+        "bus_from": "b4",
+        "bus_to": "b5",
+        "name": "L45",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 36.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L56",
+        "bus_from": "b5",
+        "bus_to": "b6",
+        "name": "L56",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 55.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L67",
+        "bus_from": "b6",
+        "bus_to": "b7",
+        "name": "L67",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 65.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L78",
+        "bus_from": "b7",
+        "bus_to": "b8",
+        "name": "L78",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 28.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "line",
+        "id": "L27",
+        "bus_from": "b2",
+        "bus_to": "b7",
+        "name": "L27",
+        "in_service": true,
+        "r_ohm_per_km": 0.8,
+        "x_ohm_per_km": 0.3,
+        "b_s_per_km": 3e-06,
+        "g_s_per_km": 0.0,
+        "length_km": 65.0,
+        "n_parallel": 1
+      },
+      {
+        "type": "load",
+        "id": "LD4",
+        "bus": "b4",
+        "name": "LD-bus4",
+        "in_service": true,
+        "p_mw": 2.177,
+        "cos_phi": 0.95,
+        "pf_sign": "lag",
+        "u_nominal_kv": 40.0,
+        "model": "constant_impedance"
+      },
+      {
+        "type": "load",
+        "id": "LD6",
+        "bus": "b6",
+        "name": "LD-bus6",
+        "in_service": true,
+        "p_mw": 2.357,
+        "cos_phi": 0.98,
+        "pf_sign": "lag",
+        "u_nominal_kv": 40.0,
+        "model": "constant_impedance"
+      },
+      {
+        "type": "load",
+        "id": "LD8",
+        "bus": "b8",
+        "name": "LD-bus8",
+        "in_service": true,
+        "p_mw": 2.857,
+        "cos_phi": 0.95,
+        "pf_sign": "lag",
+        "u_nominal_kv": 40.0,
+        "model": "constant_impedance"
+      },
+      {
+        "type": "shunt",
+        "id": "SH3",
+        "bus": "b3",
+        "name": "Shunt-bus3",
+        "in_service": true,
+        "q_mvar": 2.0,
+        "u_nominal_kv": 40.0
+      },
+      {
+        "type": "shunt",
+        "id": "SH5",
+        "bus": "b5",
+        "name": "Shunt-bus5",
+        "in_service": true,
+        "q_mvar": 2.0,
+        "u_nominal_kv": 40.0
+      }
+    ]
+  },
+  "parameters": {
+    "script_path": null,
+    "project_vars": [
+      [
+        "A",
+        "80.0"
+      ]
+    ],
+    "bindings": {
+      "L28.length_km": "28.5 + 0.5*A",
+      "L23.length_km": "15 + 0.4*A",
+      "L34.length_km": "15 + 0.6*A",
+      "L45.length_km": "20 + 0.2*A",
+      "L56.length_km": "15 + 0.5*A",
+      "L67.length_km": "17 + 0.6*A",
+      "L78.length_km": "12 + 0.2*A",
+      "L27.length_km": "25 + 0.5*A",
+      "LD4.p_mw": "(2017 + 2*A)/1000",
+      "LD6.p_mw": "(2517 - 2*A)/1000",
+      "LD8.p_mw": "(3017 - 2*A)/1000"
+    }
+  },
+  "layout": {
+    "grid": 10,
+    "items": {
+      "b1": {
+        "x": 0,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "b2": {
+        "x": 180,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "b3": {
+        "x": 420,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "b4": {
+        "x": 660,
+        "y": 0,
+        "orientation": "V",
+        "length": 60
+      },
+      "b5": {
+        "x": 660,
+        "y": 270,
+        "orientation": "H",
+        "length": 80
+      },
+      "b6": {
+        "x": 660,
+        "y": 510,
+        "orientation": "V",
+        "length": 60
+      },
+      "b7": {
+        "x": 420,
+        "y": 510,
+        "orientation": "V",
+        "length": 60
+      },
+      "b8": {
+        "x": 180,
+        "y": 510,
+        "orientation": "V",
+        "length": 60
+      },
+      "GRID": {
+        "x": -90,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "T1": {
+        "x": 90,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "L23": {
+        "x": 300,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "L34": {
+        "x": 540,
+        "y": 0,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "L45": {
+        "x": 660,
+        "y": 140,
+        "rotation": 90,
+        "mirrored": false
+      },
+      "L56": {
+        "x": 660,
+        "y": 390,
+        "rotation": 90,
+        "mirrored": false
+      },
+      "L67": {
+        "x": 540,
+        "y": 510,
+        "rotation": 180,
+        "mirrored": false
+      },
+      "L78": {
+        "x": 300,
+        "y": 510,
+        "rotation": 180,
+        "mirrored": false
+      },
+      "L28": {
+        "x": 180,
+        "y": 255,
+        "rotation": 90,
+        "mirrored": false
+      },
+      "L27": {
+        "x": 300,
+        "y": 255,
+        "rotation": 90,
+        "mirrored": false
+      },
+      "LD4": {
+        "x": 740,
+        "y": 100,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "LD6": {
+        "x": 740,
+        "y": 610,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "LD8": {
+        "x": 120,
+        "y": 610,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "SH3": {
+        "x": 420,
+        "y": 110,
+        "rotation": 0,
+        "mirrored": false
+      },
+      "SH5": {
+        "x": 590,
+        "y": 350,
+        "rotation": 0,
+        "mirrored": false
+      }
+    },
+    "wires": {}
+  },
+  "cases": [
+    {
+      "id": "S2a",
+      "study": "ybus",
+      "title": "S2a) Admittance matrix with the 70 kV Thevenin source",
+      "options": {
+        "sources": "internal_node"
+      }
+    },
+    {
+      "id": "S2b",
+      "study": "thevenin",
+      "title": "S2b) Thevenin equivalent at bus 7",
+      "options": {
+        "bus": "b7"
+      }
+    },
+    {
+      "id": "S2c",
+      "study": "short_circuit",
+      "title": "S2c) Three-phase short circuit at bus 7",
+      "options": {
+        "bus": "b7",
+        "kind": "3ph",
+        "zf_ohm": {
+          "re": 0.0,
+          "im": 0.0
+        }
+      }
+    }
+  ],
+  "view": {}
+}
