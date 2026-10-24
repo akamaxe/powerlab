@@ -3,15 +3,16 @@
 Interactive single-line diagram editor and power system analysis tool, started from the course
 **EG2100 Power System Analysis (KTH)**.
 
-You place buses, transformers, PI-model lines, loads, shunts and sources on a canvas in the style
-of DIgSILENT PowerFactory / ETAP, and the app converts the network to per unit and computes what
-**Assignment S1** asks for: the two-port (ABCD) matrix, the equivalent impedance and the bus
-voltages, with the results formatted the way the course requires.
+You place buses, transformers, PI-model lines, loads, shunts and external grids on a canvas in
+the style of DIgSILENT PowerFactory / ETAP, and the app converts the network to per unit and
+computes what **Assignments S1 and S2** ask for: the two-port (ABCD) matrix, the equivalent
+impedance, the bus voltages, the admittance matrix, Thevenin equivalents and three-phase short
+circuits, with the results formatted the way the course requires.
 
 | Assignment | Status in PowerLab |
 |---|---|
 | **S1** — two-port, equivalent Z, voltages | Complete in the GUI and in console mode, validated against the assignment statement (A = 0) and against the MATLAB reference solution (A = 80) |
-| **S2** — Y-bus, Thévenin, three-phase short circuit | The core already computes the S2b Thévenin and a test validates it, but there is no study or menu yet (see the [roadmap](#known-limitations-and-roadmap)) |
+| **S2** — Y-bus, Thévenin, three-phase short circuit | Complete: `examples/s2_grid.psn` and `examples/grid_industry.psn` hold the four tasks as study cases, validated against the MATLAB reference solution (A = 80) and the assignment statement (A = 0) |
 | **S3** — sequence networks, single line-to-ground fault | Pending |
 | **LF** — load flow | Pending |
 
@@ -83,7 +84,7 @@ code 2.
 | Component (palette) | Model | Parameters |
 |---|---|---|
 | **Bus** | Node (`busbar`, or `junction`, drawn as a dot) | Optional pinned `U base` |
-| **Source / Grid** | Ideal voltage source, or one behind a `Z_th` (external grid) | `U` [pu], angle [°], `Z_th` [Ω, complex], slack |
+| **External grid** | Voltage source behind a Thevenin impedance, given in Ω (0 = ideal) or by its fault level: `Ik` [kA] or `Sk` [MVA] with cos φ | `U` [pu], angle [°], impedance mode, `Z_th` or `Ik`/`Sk`, cos φ, nominal `U` [kV], slack |
 | **Transformer** | Two-winding, series impedance `r + jx`, no magnetizing branch | `S_n` [MVA], `U_1n`/`U_2n` [kV], `x` and `r` [%], side Z is referred to |
 | **Line / Cable** | PI equivalent, n identical lines in parallel | `r`, `x` [Ω/km], `b_c`, `g` [S/km], length [km], number in parallel |
 | **Load** | Constant impedance at its nominal voltage | `P` [MW], cos φ, lagging/leading, nominal `U` [kV] |
@@ -102,6 +103,13 @@ grey and dashed, and no study takes it into account. A new component starts with
 | **S1a) Two-port matrix** | F matrix of each element in cascade order, the product `F` between the two buses with the convention `[U₁; I₁] = F·[U₂; I₂]`, `det(F)` and the comparison between methods |
 | **S1b) Equivalent impedance** | `Z = U/I` looking into the network from a bus, in pu and in Ω, and the check against `(A·Z+B)/(C·Z+D)` |
 | **S1c) Bus voltages** | Solves the linear network: voltage of every bus (pu, angle, kV), flows and losses per branch, current and power of each source, voltage drop and the chain `U_a → I_a → U_e` |
+| **Admittance matrix (Y-bus)** | The Y-bus of the energized network with MATLAB's common factor, its node list and a symmetry check. Sources behind an impedance appear as an extra internal node (the S2a form), as a shunt to ground, or not at all |
+| **Bus voltages (linear network)** | The S1c solve for any network (S2d) |
+| **Thevenin equivalent** | `U_th` from the pre-fault solve and `Z_th` from the impedance matrix, in pu and SI, with `I_sc` and `S_sc`; cross-checked against Kron reduction and against the MATLAB route `Z(k,s) E / Z(s,s)` |
+| **Short circuit** | Three-phase fault through `Z_f`: fault current in pu and kA, fault power both as `U_th conj(I_f) S_base` (the course's definition) and as `√3 U_base |I_f|`, and every bus voltage and branch current during the fault |
+
+Right-click a bus for *Thevenin equivalent here* or *Three-phase short circuit here*: the study
+runs at once, without adding a case to the project.
 
 A **study case** is a study plus its options and, optionally, a variant of the network: elements
 taken out of service and fields overridden by an expression (`0.5*value` halves a load, and the
@@ -287,7 +295,7 @@ the diagram. No GUI code has to change.
 ## Verification
 
 ```
-python -m pytest                              # 161 tests, a few seconds, the GUI runs offscreen
+python -m pytest                              # 174 tests, a few seconds, the GUI runs offscreen
 python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
@@ -301,7 +309,8 @@ python run_s1_headless.py --a-number 0        # the answer published in the assi
 | `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 47 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, startup |
+| `test_gui.py` | 50 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, startup |
+| `test_s2.py` | 10 | S2a-S2d from the example projects against the MATLAB solution, A = 80 and A = 0; the external grid from its fault level |
 | `test_s2_thevenin.py` | 2 | Thévenin at bus 7 of S2 for A = 0 and A = 80 |
 
 The S1 reference values come from the MATLAB reference solution of the assignment (A = 80). The
@@ -337,20 +346,21 @@ solution, A = 80).
   current in polar form with the angle in degrees**, in MATLAB's `format short` style.
 - Bases follow the nameplate, not the switching state.
 
+## Example projects
+
+| File | What it holds |
+|---|---|
+| `examples/s1_a80.psn` | Assignment S1: the factory network, cases S1a-S1c |
+| `examples/s2_grid.psn` | Assignment S2: the meshed 40 kV grid fed from 70 kV, cases S2a-S2c |
+| `examples/grid_industry.psn` | The S2 grid with the S1 industry at bus 7: S2a-S2c (industry out of service) and S2d (load LDe halved) |
+
+All of them are parametric in the variable `A`: set it to 0 to reproduce the answers printed in
+the assignment. `python tools/make_examples.py` rewrites the S2 files from their builders in
+`psa/core/examples.py`.
+
 ## Known limitations and roadmap
 
 The full v1 plan is in [`docs/ROADMAP.md`](docs/ROADMAP.md). In short:
-
-**For S2**, the main gap is exposing what the core can already do:
-
-- S2a: a study that shows the Y-bus matrix with the Thévenin of the external grid (`build_ybus`
-  already exists).
-- S2b: register `analysis.thevenin()`, which is already validated.
-- S2c: three-phase short-circuit current and power in kA and MVA.
-- S2d: combine the S2b Thévenin with the S1 network and the reduced load.
-- A source defined directly by its short-circuit level (kA or MVA and cos φ); today `Z_th` is
-  given in Ω, for example with the expression above.
-- Study options other than buses (fault type or impedance) in the dialog.
 
 **For S3:** zero-sequence models of transformers (Y0/Δ connections), loads and lines, and the
 single line-to-ground fault. **For LF:** Newton-Raphson with slack/PV/PQ buses, constant-power

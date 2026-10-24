@@ -8,7 +8,7 @@
 | 1 | GUI on PySide6 | done |
 | 2 | Core v2 model | done |
 | 3 | Study framework v2 and GUI wiring | done |
-| 4 | S2 end to end | pending |
+| 4 | S2 end to end | done |
 | 5 | Editor ergonomics | pending |
 | 6 | S3: sequence networks and unbalanced conditions | pending |
 | 7 | Load flow (Newton–Raphson) | pending |

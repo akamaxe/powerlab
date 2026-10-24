@@ -24,7 +24,9 @@ python run_s1_headless.py [project.psn] [--study KEY] [--a-number N]
 ```
 
 Regenerating the MATLAB reference fixtures needs the coursework folder and MATLAB; see
-`tools/refs/README.md`.
+`tools/refs/README.md`. `python tools/make_examples.py` rewrites the generated example projects
+(`examples/s2_grid.psn`, `examples/grid_industry.psn`) from `psa.core.examples.example_projects()`;
+`tests/test_s2.py` fails when a file is out of date. `examples/s1_a80.psn` is hand-made.
 
 ## Architecture
 
@@ -58,7 +60,12 @@ Core pipeline, in the order a study sees it:
    (the MATLAB S2 9x9 form). `ModelOptions(energized_only=True)` drops islands without a source.
    Only the positive sequence exists so far. `perunit.py` is the S1 view on top: `to_per_unit`
    returns the legacy `PuModel` (PI branches, shunts, sources, trace) and stays strict.
-5. `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance, Thévenin), `twoport.py`
+5. `solve/`: solvers over a `SequenceModel` — `linear.solve_nodal` (pre-fault state, sources as
+   boundary conditions or Norton pairs), `zbus.ZBus` (impedance-matrix columns from one scipy LU
+   factorization, ideal-source buses grounded), `thevenin.thevenin_at` (with cross-checks against
+   Kron reduction and the MATLAB `Z(k,s) E / Z(s,s)` route), `faults.solve_fault` (three-phase
+   only so far). The legacy `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance,
+   Thévenin) and `twoport.py`
    (S1a cascade, cross-checked against Kron reduction of the Y-bus; whatever hangs off a port
    without reaching the other one is part of the termination).
 6. `cases.py` + `study.py`: a `Case` is a study id plus options, field `overrides`
@@ -68,7 +75,10 @@ Core pipeline, in the order a study sees it:
    run(StudyContext), option_fields, defaults, dynamic_choices, note, annotate)`; options are
    `OptionSpec` (kinds bus, element, elements, choice, float, int, bool, complex, str).
    `run_case(net, case, params)` lays the case options over `defaults(net)`. Calling a study
-   directly, `study(net, opts, pu)`, still works.
+   directly, `study(net, opts, pu)`, still works. The S1 studies live in `study.py`; the others
+   in `studies/` (`grid.py`: `ybus`, `linear`, `thevenin`, `short_circuit`), imported at the end
+   of `study.py` so they register themselves. These use `build_model(..., energized_only=True)`,
+   so a case that takes part of the network out of service just sees the rest.
 7. `results.py` + `present.py` + `units.py`: a `Result` holds formatted `Table`s (MATLAB
    `format short`) and the numbers behind them: `scalars`, per-bus `buses`, per-component
    `elements` (`Quantity` with a `units.QUANTITY_STYLE` kind) and labelled `matrices`.
@@ -91,6 +101,10 @@ sheet.
 `.psn` files are JSON (`serialize.py`, `VERSION` 2 plus a `MIGRATIONS` chain; version 1 kept
 `studies` options and migrates to `cases`), written with LF line endings. Components are built
 generically from dataclass fields, so a new field with a default needs no migration.
+
+`ExternalGrid` (file type key `"source"`, alias `Source`) gives its impedance in ohm or by fault
+level (`z_mode` `ik`/`sk`, `|Z| = U/(sqrt(3) Ik)` or `U^2/Sk` at `acos(cos_phi)`, `U = u_pu * un_kv`);
+`FieldSpec.visible_if` hides the fields of the other modes in the property editor.
 
 Adding a component type currently touches: the dataclass (with `TERMINALS`) and
 `COMPONENT_CLASSES` (`components.py`), an `ElementModel` in `model/elements.py`,
@@ -117,6 +131,8 @@ badges all follow from it.
   New assignment tests compare against these at `rtol=1e-9` (load flow `1e-8`), at A = 80 and
   A = 0. The A = 0 S3b values printed in the assignment statement contain misprints; see
   `tools/refs/README.md`.
+- `tests/test_s2.py` runs every S2 case of the example projects against the fixtures, at A = 80
+  and, by setting the project variable A, at A = 0.
 - `tests/fixtures/s1_a80_v1.psn`: a version 1 project, for the migration test.
 - `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor, and
   `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`
