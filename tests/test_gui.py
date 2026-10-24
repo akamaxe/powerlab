@@ -7,13 +7,16 @@ behaviour and geometry, never pixels.
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QPointF, Qt              # noqa: E402
+from PyQt5.QtCore import QPointF, QSettings, Qt   # noqa: E402
 from PyQt5.QtWidgets import QApplication          # noqa: E402
 
 from psa.core.analysis import equivalent_impedance     # noqa: E402
@@ -29,6 +32,13 @@ ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "s1_a80.psn"
 
 _app = QApplication.instance() or QApplication(["tests"])
+
+# Keep the tests away from the real user settings (the registry on Windows):
+# MainWindow saves its geometry and recent files on close.
+_SETTINGS_DIR = tempfile.mkdtemp(prefix="powerlab-test-settings-")
+atexit.register(shutil.rmtree, _SETTINGS_DIR, ignore_errors=True)
+QSettings.setDefaultFormat(QSettings.IniFormat)
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _SETTINGS_DIR)
 
 
 def s1_document() -> NetworkDocument:
@@ -382,6 +392,17 @@ class MainWindowSmoke(unittest.TestCase):
         self.assertIn("x_pct", win.properties._widgets)
         doc.undo.setClean()
         win.close()
+
+    def test_settings_stay_out_of_the_user_profile(self):
+        """Closing a window writes to the temporary INI file, never the registry."""
+        from psa.gui.mainwindow import MainWindow, _settings
+
+        settings_file = Path(_settings().fileName()).resolve()
+        self.assertTrue(settings_file.is_relative_to(Path(_SETTINGS_DIR).resolve()),
+                        settings_file)
+        win = MainWindow(blank_document())
+        win.close()
+        self.assertIsNotNone(_settings().value("geometry"))
 
     def test_running_with_an_invalid_network_reports_and_bails_out(self):
         """An incomplete network must produce a message, not a traceback."""

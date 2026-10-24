@@ -38,6 +38,15 @@ FILE_FILTER = "PowerLab project (*.psn);;All files (*)"
 ORG, APP = "PowerLab", "PowerLab"
 
 
+def _settings() -> QSettings:
+    """Per-user settings in the default format (the registry on Windows).
+
+    ``QSettings(ORG, APP)`` would always use the native format; going through
+    ``defaultFormat()`` lets the tests redirect everything to a temporary INI
+    file instead of the real user settings.
+    """
+    return QSettings(QSettings.defaultFormat(), QSettings.UserScope, ORG, APP)
+
 
 class MainWindow(QMainWindow):
     def __init__(self, document: NetworkDocument | None = None):
@@ -368,7 +377,7 @@ class MainWindow(QMainWindow):
     # -- recent files --------------------------------------------------- #
 
     def _recent_paths(self) -> list[str]:
-        stored = QSettings(ORG, APP).value("recentFiles") or []
+        stored = _settings().value("recentFiles") or []
         if isinstance(stored, str):
             stored = [stored]
         return [p for p in stored if Path(p).is_file()]
@@ -377,7 +386,7 @@ class MainWindow(QMainWindow):
         paths = [str(Path(path).resolve())]
         paths += [p for p in self._recent_paths()
                   if Path(p).resolve() != Path(path).resolve()]
-        QSettings(ORG, APP).setValue("recentFiles", paths[:8])
+        _settings().setValue("recentFiles", paths[:8])
         self._rebuild_recent_menu()
 
     def _rebuild_recent_menu(self) -> None:
@@ -397,13 +406,13 @@ class MainWindow(QMainWindow):
         menu.setEnabled(bool(paths))
 
     def _clear_recent(self) -> None:
-        QSettings(ORG, APP).remove("recentFiles")
+        _settings().remove("recentFiles")
         self._rebuild_recent_menu()
 
     def _forget_recent(self, path: str) -> None:
         paths = [p for p in self._recent_paths()
                  if Path(p).resolve() != Path(path).resolve()]
-        QSettings(ORG, APP).setValue("recentFiles", paths)
+        _settings().setValue("recentFiles", paths)
         self._rebuild_recent_menu()
 
     def open_recent(self, path: str) -> None:
@@ -773,7 +782,7 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.dock_results], [320], Qt.Vertical)
 
     def _restore_window_state(self) -> None:
-        settings = QSettings(ORG, APP)
+        settings = _settings()
         geometry = settings.value("geometry")
         state = settings.value("windowState")
         if geometry:
@@ -785,7 +794,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             event.ignore()
             return
-        settings = QSettings(ORG, APP)
+        settings = _settings()
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("windowState", self.saveState())
         super().closeEvent(event)
