@@ -6,7 +6,7 @@
 |---|---|---|
 | 0 | Repository, conventions, references | done |
 | 1 | GUI on PySide6 | done |
-| 2 | Core v2 model | pending |
+| 2 | Core v2 model | done |
 | 3 | Study framework v2 and GUI wiring | pending |
 | 4 | S2 end to end | pending |
 | 5 | Editor ergonomics | pending |

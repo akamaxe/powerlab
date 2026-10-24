@@ -118,10 +118,11 @@ used, with a warning.
 
 Also:
 
-- **Validation before computing**: missing reference bus, unconnected terminals, branches joining
-  a bus to itself, transformer loops with incompatible ratios (it says at which bus and because of
-  which component), buses without a base, islands, floating buses and decoupled ports. Errors are
-  explained in a message, not with a traceback.
+- **Validation before computing**: missing reference bus, branches joining a bus to itself,
+  zero-impedance branches, transformer loops with incompatible ratios (it says at which bus and
+  because of which component), buses without a base, islands, floating buses and decoupled ports.
+  Errors are explained in a message, not with a traceback. A component that is not wired yet only
+  gives a warning and is left out, so a half-drawn element never blocks the studies.
 - If a study cannot run, the others are still shown and the failed one appears with the reason.
 - **Diagram annotations** (`Ctrl+R`): after computing, each bus shows its voltage in kV and in pu
   with angle, and each branch `|I|` and `S`. Any change to the model clears them and marks the
@@ -234,10 +235,13 @@ starting from the reference bus.
 run_gui.py            GUI startup
 run_s1_headless.py    console mode
 psa/core/     numpy + networkx, no Qt at all (a test checks it in a subprocess)
-  components  dataclasses Bus / Source / Transformer / Line / Load / Shunt / Impedance
+  components  dataclasses Bus / Source / Transformer / Line / Load / Shunt / Impedance, with
+              their terminals and editor fields
   network     container, graphs, structural validation
   bases       base propagation by BFS through rated ratios
-  perunit     per-unit conversion (where physical units become numbers)
+  model/      element models and sequence networks (where physical units become numbers):
+              elements (one model per component class), stamps, sequence (build_model, Y-bus)
+  perunit     the per-unit view the S1 studies read
   ybus        Y-bus and Kron reduction, with conditioning guards
   twoport     termination rule, cascade, general method, cross-check
   analysis    equivalent impedance, nodal solve, Thévenin (basis for S2)

@@ -37,19 +37,27 @@ preloads the system ICU, because Anaconda's `Library\bin\icuuc.dll` otherwise sh
 Core pipeline, in the order a study sees it:
 
 1. `components.py`: plain dataclasses holding floats only. Connectivity is the bus-id strings in
-   the fields each class lists in `BUS_FIELDS`; ids are unique across buses and components, and
-   `Network` dict insertion order becomes matrix order. `FIELDS` (`FieldSpec`) drives the GUI
-   property editor and the study option dialogs.
+   the fields each class lists in `TERMINALS` (`BUS_FIELDS` is derived from it); `is_series` is
+   structural (two or more required terminals), and a component with an unconnected terminal is
+   a validation warning that `Network.active_components` leaves out. Ids are unique across buses
+   and components, and `Network` dict insertion order becomes matrix order. `FIELDS`
+   (`FieldSpec`) drives the GUI property editor and the study option dialogs.
 2. `params.py`: project variables, an optional user script and bindings
    (`"COMP.field": "expression"`) are evaluated with an AST-whitelisted `safe_eval` and written
    into the dataclass fields eagerly (on load, on variable edits). The network always holds
    evaluated numbers; nothing downstream sees expressions.
-3. `bases.py`: per-unit bases by BFS from `base_ref_bus` through rated transformer ratios,
-   following the nameplate rather than the switching state; conflicts are reported, not resolved.
-4. `perunit.py`: `to_per_unit` turns active components into a `PuModel` (series branches, shunts,
-   sources) plus a `ConversionStep` audit trail that feeds the per-unit table. It is an
-   `isinstance` chain and positive-sequence only; roadmap phase 2 replaces it with element models
-   and per-sequence stamps.
+3. `bases.py`: per-unit bases by BFS from `base_ref_bus`, crossing each series branch with its
+   element model's `base_ratio` (rated ratios), following the nameplate rather than the switching
+   state; conflicts are reported, not resolved.
+4. `model/`: where components become numbers. `elements.py` holds one `ElementModel` per
+   component class (registered with `@element_model`), which writes `BranchStamp` (PI or general
+   2x2), `ShuntStamp`, `SourceStamp` and a `ConversionStep` audit row. `sequence.py`:
+   `build_model(net, ModelOptions)` validates, propagates bases and returns a `NetworkModel`;
+   `NetworkModel.seq(Seq.POS)` gives the cached `SequenceModel`, whose `ybus(sources=...)`
+   treats finite-impedance sources as excluded, grounded (Norton shunt) or as an internal node
+   (the MATLAB S2 9x9 form). `ModelOptions(energized_only=True)` drops islands without a source.
+   Only the positive sequence exists so far. `perunit.py` is the S1 view on top: `to_per_unit`
+   returns the legacy `PuModel` (PI branches, shunts, sources, trace) and stays strict.
 5. `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance, Thévenin), `twoport.py`
    (S1a cascade, cross-checked against Kron reduction of the Y-bus).
 6. `study.py`: `STUDY_REGISTRY` of `Study(key, title, menu_group, run(net, opts, pu),
@@ -68,11 +76,11 @@ the diagram overlay, whatever study ran (to be replaced in roadmap phase 3).
 `.psn` files are JSON (`serialize.py`, `VERSION` plus a `MIGRATIONS` chain). Components are built
 generically from dataclass fields, so a new field with a default needs no migration.
 
-Adding a component type currently touches: the dataclass and `COMPONENT_CLASSES`
-(`components.py`), the dispatch in `perunit.to_per_unit`, `Network.validate`, `ITEM_CLASSES`
-(`gui/items.py`), `PALETTE_ITEMS` and `symbol_icon` (`gui/panels.py`), `_apply_defaults`
-(`gui/scene.py`), the id prefixes in `NetworkDocument.new_id`, the connectivity-field list in
-`NetworkDocument._apply_set_field`, and `serialize.auto_layout`. Adding a study touches
+Adding a component type currently touches: the dataclass (with `TERMINALS`) and
+`COMPONENT_CLASSES` (`components.py`), an `ElementModel` in `model/elements.py`,
+`Network.validate` for its sanity checks, `ITEM_CLASSES` (`gui/items.py`), `PALETTE_ITEMS` and
+`symbol_icon` (`gui/panels.py`), `_apply_defaults` (`gui/scene.py`), the id prefixes in
+`NetworkDocument.new_id`, and `serialize.auto_layout`. Adding a study touches
 `study.register` plus the S1 special cases in `gui/dialogs.py` (it only renders bus fields),
 `MainWindow._fill_defaults` and `SchematicScene.show_overlay`.
 
@@ -93,7 +101,8 @@ Adding a component type currently touches: the dataclass and `COMPONENT_CLASSES`
   New assignment tests compare against these at `rtol=1e-9` (load flow `1e-8`), at A = 80 and
   A = 0. The A = 0 S3b values printed in the assignment statement contain misprints; see
   `tools/refs/README.md`.
-- `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor. Output
-  must stay identical; regenerate them only for an intended change.
+- `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor, and
+  `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`
+  holds the refactor to both. Regenerate them only for an intended change.
 - `tests/test_gui.py` runs on the offscreen Qt platform and redirects `QSettings` to a temporary
   INI file; it reaches into private attributes, so GUI refactors usually need test updates.
