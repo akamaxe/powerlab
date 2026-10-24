@@ -32,7 +32,9 @@ class Selection:
 class NetworkDocument(QObject):
     """Owns the project and broadcasts every change."""
 
-    structureChanged = Signal()             # objects added or removed
+    structureChanged = Signal()             # objects added or removed, or bulk changes
+    objectAdded = Signal(str)               # one object added (before structureChanged)
+    objectRemoved = Signal(str)             # one object removed (before structureChanged)
     componentChanged = Signal(str)          # one object's data changed
     connectivityChanged = Signal(str)       # a terminal was re-attached
     layoutChanged = Signal(str)             # an item moved or resized
@@ -123,9 +125,9 @@ class NetworkDocument(QObject):
     # ------------------------------------------------------------------ #
 
     def new_id(self, type_name: str) -> str:
-        prefix = {"bus": "bus", "line": "LI", "transformer": "T",
-                  "load": "LD", "shunt": "SH", "source": "SRC",
-                  "impedance": "Z"}.get(type_name, type_name[:3].upper())
+        from .registry import id_prefix
+
+        prefix = id_prefix(type_name)
         n = 1
         while True:
             candidate = f"{prefix}{n}"
@@ -162,6 +164,7 @@ class NetworkDocument(QObject):
     def _apply_add(self, obj, layout: dict | None = None) -> None:
         self.network.add(obj)
         self.project.layout[obj.id] = dict(layout or {"x": 0, "y": 0})
+        self.objectAdded.emit(obj.id)
         self.structureChanged.emit()
         self.invalidate_results()
 
@@ -171,6 +174,7 @@ class NetworkDocument(QObject):
         self.params.drop_component(obj_id)
         self.project.wires = {k: v for k, v in self.project.wires.items()
                               if not k.startswith(f"{obj_id}:")}
+        self.objectRemoved.emit(obj_id)
         self.structureChanged.emit()
         self.invalidate_results()
         return obj, layout

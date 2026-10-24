@@ -23,8 +23,8 @@ from .items import (
     TerminalItem,
     WireHandle,
     WireItem,
-    make_item,
 )
+from .registry import apply_defaults, item_class, make_item
 
 SCENE_RECT = QRectF(-5000, -5000, 10000, 10000)
 
@@ -61,7 +61,9 @@ class SchematicScene(QGraphicsScene):
         self._drag_start: dict[str, dict] | None = None
         self._last_pressed: str | None = None
 
-        document.structureChanged.connect(self.rebuild)
+        document.objectAdded.connect(self._on_object_added)
+        document.objectRemoved.connect(self._on_object_removed)
+        document.structureChanged.connect(self.refresh_labels)
         document.componentChanged.connect(self._on_component_changed)
         document.connectivityChanged.connect(self._on_connectivity_changed)
         document.layoutChanged.connect(self._on_layout_changed)
@@ -73,7 +75,9 @@ class SchematicScene(QGraphicsScene):
     def detach(self) -> None:
         """Stop tracking the document. Call before discarding this scene."""
         try:
-            self.document.structureChanged.disconnect(self.rebuild)
+            self.document.objectAdded.disconnect(self._on_object_added)
+            self.document.objectRemoved.disconnect(self._on_object_removed)
+            self.document.structureChanged.disconnect(self.refresh_labels)
             self.document.componentChanged.disconnect(self._on_component_changed)
             self.document.connectivityChanged.disconnect(
                 self._on_connectivity_changed)
@@ -105,16 +109,72 @@ class SchematicScene(QGraphicsScene):
         self.clear_overlay()
 
         self.document.ensure_layout()
-        layout = self.document.project.layout
         for obj in self.document.network:
-            item = make_item(obj, self.document, layout.get(obj.id))
-            item.doubleClicked.connect(self.requestProperties.emit)
-            self.addItem(item)
-            self._items[obj.id] = item
+            item = self._make(obj)
             if obj.id in selected:
                 item.setSelected(True)
 
         self.rebuild_wires()
+
+    def _make(self, obj) -> ComponentItem:
+        item = make_item(obj, self.document, self.document.project.layout.get(obj.id))
+        item.doubleClicked.connect(self.requestProperties.emit)
+        self.addItem(item)
+        self._items[obj.id] = item
+        return item
+
+    def _on_object_added(self, obj_id: str) -> None:
+        """One object came in: add its symbol and the wires that now exist."""
+        net = self.document.network
+        if obj_id not in net or obj_id in self._items:
+            return
+        self.document.ensure_layout()
+        self._make(net.get(obj_id))
+        if obj_id in net.buses:
+            for comp in net.dependents_of(obj_id):
+                self._add_wires_for(comp.id)
+        else:
+            self._add_wires_for(obj_id)
+
+    def _on_object_removed(self, obj_id: str) -> None:
+        """One object went away: drop its symbol, its wires and its badges."""
+        for wire in list(self._wires_by_owner.pop(obj_id, ())):
+            self._forget_wire(wire)
+        item = self._items.pop(obj_id, None)
+        if item is not None:
+            self.removeItem(item)
+        for badge in [b for b in self._overlay if b.target == obj_id]:
+            self.removeItem(badge)
+            self._overlay.remove(badge)
+
+    def _forget_wire(self, wire: WireItem) -> None:
+        self._wires.pop(wire.key, None)
+        for owner in (wire.comp_id, wire.bus_id):
+            self._wires_by_owner.get(owner, set()).discard(wire)
+        self._remove_wire(wire)
+
+    def _add_wires_for(self, comp_id: str) -> None:
+        """(Re)create the wires of one component from its connectivity."""
+        for wire in [w for w in self._wires_by_owner.get(comp_id, ())
+                     if w.comp_id == comp_id]:
+            self._forget_wire(wire)
+        comp = self.document.network.components.get(comp_id)
+        item = self._items.get(comp_id)
+        if comp is None or item is None:
+            return
+        for index, (_, _, field) in enumerate(item.TERMINALS):
+            bus_id = getattr(comp, field, None)
+            if not bus_id or bus_id not in self._items:
+                continue
+            wire = WireItem(comp.id, index, bus_id, self)
+            saved = self.document.project.wires.get(wire.key)
+            if saved:
+                wire.waypoints = [QPointF(p[0], p[1]) for p in saved]
+            self.addItem(wire)
+            self._wires[wire.key] = wire
+            self._wires_by_owner.setdefault(comp.id, set()).add(wire)
+            self._wires_by_owner.setdefault(bus_id, set()).add(wire)
+            wire.refresh()
 
     def _remove_wire(self, wire: WireItem) -> None:
         for handle in wire.handles:
@@ -130,23 +190,7 @@ class SchematicScene(QGraphicsScene):
         self._wires_by_owner.clear()
 
         for comp in self.document.network.components.values():
-            item = self._items.get(comp.id)
-            if item is None:
-                continue
-            for index, (_, _, field) in enumerate(item.TERMINALS):
-                bus_id = getattr(comp, field, None)
-                if not bus_id or bus_id not in self._items:
-                    continue
-                wire = WireItem(comp.id, index, bus_id, self)
-                key = wire.key
-                saved = self.document.project.wires.get(key)
-                if saved:
-                    wire.waypoints = [QPointF(p[0], p[1]) for p in saved]
-                self.addItem(wire)
-                self._wires[key] = wire
-                self._wires_by_owner.setdefault(comp.id, set()).add(wire)
-                self._wires_by_owner.setdefault(bus_id, set()).add(wire)
-                wire.refresh()
+            self._add_wires_for(comp.id)
 
     def refresh_labels(self) -> None:
         for item in self._items.values():
@@ -164,7 +208,7 @@ class SchematicScene(QGraphicsScene):
                 wire.refresh()
 
     def _on_connectivity_changed(self, obj_id: str) -> None:
-        self.rebuild_wires()
+        self._add_wires_for(obj_id)
         item = self._items.get(obj_id)
         if item is not None:
             item.refresh_from_model()
@@ -213,11 +257,8 @@ class SchematicScene(QGraphicsScene):
         for badge in self._overlay:
             if badge.target == item.comp_id:
                 self._place_badge(badge, item)
-        # A bus move also drags the attach points of everything tapping it.
-        if isinstance(item, BusItem):
-            for wire in list(self._wires.values()):
-                if wire.bus_id == item.comp_id:
-                    wire.refresh()
+        # A bus's own entry already holds every wire tapping it, so moving a
+        # bus refreshed them above.
 
     def refresh_all_wires(self) -> None:
         for wire in self._wires.values():
@@ -499,7 +540,7 @@ class SchematicScene(QGraphicsScene):
         cls = TYPE_REGISTRY[type_name]
         obj_id = doc.new_id(type_name)
         obj = cls(obj_id, name=doc.new_name(type_name, obj_id))
-        _apply_defaults(obj)
+        apply_defaults(obj)
 
         layout = {"x": pos.x(), "y": pos.y()}
         if type_name == "bus":
@@ -522,8 +563,7 @@ class SchematicScene(QGraphicsScene):
         Each terminal takes its closest free bus, so dropping a transformer
         between two bars wires it up the way it looks.
         """
-        from .items import ITEM_CLASSES
-        terminals = ITEM_CLASSES[obj.TYPE].TERMINALS
+        terminals = item_class(obj.TYPE).TERMINALS
         ranked = {
             field: self._buses_by_distance(
                 QPointF(pos.x() + tx, pos.y() + ty), self.SNAP_RADIUS)
@@ -605,24 +645,6 @@ class SchematicScene(QGraphicsScene):
             badge.setPos(anchor.x() - w / 2.0, anchor.y() + lane)
         else:
             badge.setPos(anchor.x() + 24.0, anchor.y() - h / 2.0)
-
-
-def _apply_defaults(obj) -> None:
-    """Give a freshly placed component values that already make sense."""
-    t = obj.TYPE
-    if t == "transformer":
-        obj.sn_mva, obj.u1n_kv, obj.u2n_kv, obj.x_pct = 10.0, 40.0, 12.0, 7.0
-    elif t == "line":
-        obj.r_ohm_per_km, obj.x_ohm_per_km = 0.16, 0.08
-        obj.b_s_per_km, obj.length_km = 3.0e-6, 1.0
-    elif t == "load":
-        obj.p_mw, obj.cos_phi, obj.pf_sign = 1.0, 0.9, "lag"
-    elif t == "shunt":
-        obj.q_mvar = 2.0
-    elif t == "source":
-        obj.u_pu, obj.theta_deg = 1.0, 0.0
-    elif t == "impedance":
-        obj.r, obj.x = 0.0, 1.0
 
 
 # --------------------------------------------------------------------------- #

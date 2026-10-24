@@ -960,38 +960,3 @@ class OverlayBadge(QGraphicsItem):
         for line in self.lines:
             painter.drawText(QPointF(4, y), line)
             y += metrics.height()
-
-
-# --------------------------------------------------------------------------- #
-# Factory
-# --------------------------------------------------------------------------- #
-
-ITEM_CLASSES = {
-    "bus": BusItem,
-    "source": SourceItem,
-    "transformer": TransformerItem,
-    "line": LineItem,
-    "load": LoadItem,
-    "shunt": ShuntCapItem,
-    "impedance": ImpedanceItem,
-}
-
-
-def make_item(comp, document, layout: dict | None = None) -> ComponentItem:
-    """Build the graphics item for a component, applying its saved layout."""
-    layout = layout or {}
-    cls = ITEM_CLASSES[comp.TYPE]
-    if cls is BusItem:
-        item = BusItem(comp.id, document,
-                       orientation=layout.get("orientation", "V"),
-                       length=float(layout.get("length", st.BUS_LENGTH)))
-    else:
-        item = cls(comp.id, document)
-        rotation = float(layout.get("rotation", 0) or 0)
-        if rotation:
-            item.setRotation(rotation)
-    item.setPos(float(layout.get("x", 0)), float(layout.get("y", 0)))
-    off = layout.get("label_offset")
-    if off:
-        item.set_label_offset(float(off[0]), float(off[1]))
-    return item

@@ -35,27 +35,10 @@ from ..core.errors import ExpressionError
 from ..core.params import safe_eval
 from . import style as st
 from .commands import Connect, SetBinding, SetField, SetParameters
-from .items import ITEM_CLASSES, make_item
-
-PALETTE_ITEMS = [
-    ("bus", "Bus", "Busbar or node. Everything connects to a bus."),
-    ("source", "External grid", "Voltage source behind a Thevenin impedance, given "
-                                 "in ohm or by its fault level (Ik or Sk)."),
-    ("transformer", "Transformer", "Two-winding, series reactance."),
-    ("line", "Line / Cable", "PI model, n identical lines in parallel."),
-    ("load", "Load", "Power drawn at a nominal voltage (constant impedance)."),
-    ("shunt", "Shunt", "Capacitor (Q > 0) or reactor (Q < 0)."),
-    ("impedance", "Impedance", "Raw R + jX, series or to ground."),
-]
-
-
-# --------------------------------------------------------------------------- #
-# Palette
-# --------------------------------------------------------------------------- #
-
+from .registry import ELEMENT_UI
 
 def symbol_icon(type_name: str, size: int = 34) -> QIcon:
-    """Render the real schematic symbol as the palette icon."""
+    """The palette icon: the type's symbol drawn by its registry entry."""
     pix = QPixmap(size, size)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
@@ -65,49 +48,9 @@ def symbol_icon(type_name: str, size: int = 34) -> QIcon:
     painter.scale(scale, scale)
     painter.setPen(st.pen(st.INK, 3.0))
     painter.setBrush(Qt.BrushStyle.NoBrush)
-
-    if type_name == "bus":
-        painter.setPen(st.pen(st.INK, 7.0))
-        painter.drawLine(QPointF(0, -32), QPointF(0, 32))
-    elif type_name == "transformer":
-        painter.drawEllipse(QPointF(-7, 0), 11, 11)
-        painter.drawEllipse(QPointF(7, 0), 11, 11)
-        painter.drawLine(QPointF(-30, 0), QPointF(-18, 0))
-        painter.drawLine(QPointF(18, 0), QPointF(30, 0))
-    elif type_name == "line":
-        painter.drawLine(QPointF(-30, -4), QPointF(30, -4))
-        painter.drawLine(QPointF(-30, 4), QPointF(30, 4))
-        for sx in (-1, 1):
-            x = sx * 16
-            painter.drawLine(QPointF(x, 6), QPointF(x, 12))
-            painter.drawLine(QPointF(x - 7, 12), QPointF(x + 7, 12))
-            painter.drawLine(QPointF(x - 7, 17), QPointF(x + 7, 17))
-    elif type_name == "load":
-        painter.drawLine(QPointF(0, -30), QPointF(0, -6))
-        painter.setBrush(st.INK)
-        from PySide6.QtGui import QPolygonF
-        painter.drawPolygon(QPolygonF(
-            [QPointF(-13, -6), QPointF(13, -6), QPointF(0, 20)]))
-    elif type_name == "shunt":
-        painter.drawLine(QPointF(0, -30), QPointF(0, -8))
-        painter.drawLine(QPointF(-14, -8), QPointF(14, -8))
-        painter.drawLine(QPointF(-14, 0), QPointF(14, 0))
-        painter.drawLine(QPointF(0, 0), QPointF(0, 8))
-        for i, w in enumerate((14, 9, 4)):
-            painter.drawLine(QPointF(-w, 8 + i * 6), QPointF(w, 8 + i * 6))
-    elif type_name == "source":
-        painter.drawEllipse(QPointF(0, 0), 18, 18)
-        painter.drawLine(QPointF(18, 0), QPointF(32, 0))
-        from PySide6.QtGui import QPainterPath
-        path = QPainterPath(QPointF(-10, 0))
-        path.cubicTo(QPointF(-5, -12), QPointF(0, 12), QPointF(0, 0))
-        path.cubicTo(QPointF(0, -12), QPointF(5, 12), QPointF(10, 0))
-        painter.drawPath(path)
-    elif type_name == "impedance":
-        painter.setBrush(Qt.GlobalColor.white)
-        painter.drawRect(-16, -9, 32, 18)
-        painter.drawLine(QPointF(-30, 0), QPointF(-16, 0))
-        painter.drawLine(QPointF(16, 0), QPointF(30, 0))
+    entry = ELEMENT_UI.get(type_name)
+    if entry is not None:
+        entry.draw_icon(painter)
     painter.end()
     return QIcon(pix)
 
@@ -123,11 +66,11 @@ class PaletteList(QListWidget):
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        for type_name, label, tip in PALETTE_ITEMS:
-            item = QListWidgetItem(symbol_icon(type_name), label)
-            item.setData(Qt.ItemDataRole.UserRole, type_name)
-            item.setToolTip(f"{tip}\n\nClick to place, or drag onto the canvas. "
-                            f"Hold Shift while placing to add several.")
+        for entry in ELEMENT_UI.values():
+            item = QListWidgetItem(symbol_icon(entry.type), entry.label)
+            item.setData(Qt.ItemDataRole.UserRole, entry.type)
+            item.setToolTip(f"{entry.tooltip}\n\nClick to place, or drag onto the "
+                            f"canvas. Hold Shift while placing to add several.")
             self.addItem(item)
         self.itemClicked.connect(
             lambda it: self.toolPicked.emit(it.data(Qt.ItemDataRole.UserRole)))

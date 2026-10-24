@@ -1005,6 +1005,81 @@ class WiresAndBusbars(unittest.TestCase):
         self.assertEqual(len(scene2._wires["LDe:0"].waypoints), 1)
 
 
+def _meshed_document(rows: int = 5, cols: int = 8) -> NetworkDocument:
+    """A grid-shaped network of IEEE-39 size: 40 buses, ~70 lines, 20 loads."""
+    from psa.core.components import Bus, ExternalGrid, Line, Load
+    from psa.core.network import Network
+
+    net = Network(s_base_mva=100.0, base_ref_bus="n0_0", base_ref_u_kv=220.0)
+    layout = {}
+    for r in range(rows):
+        for c in range(cols):
+            bus_id = f"n{r}_{c}"
+            net.add(Bus(bus_id, name=bus_id))
+            layout[bus_id] = {"x": c * 200, "y": r * 200, "orientation": "V", "length": 60}
+    k = 0
+    for r in range(rows):
+        for c in range(cols):
+            for dr, dc, rot in ((0, 1, 0), (1, 0, 90)):
+                if r + dr < rows and c + dc < cols:
+                    k += 1
+                    line_id = f"L{k}"
+                    net.add(Line(line_id, bus_from=f"n{r}_{c}", bus_to=f"n{r + dr}_{c + dc}",
+                                 r_ohm_per_km=0.05, x_ohm_per_km=0.5, b_s_per_km=3.6e-6,
+                                 length_km=50.0))
+                    layout[line_id] = {"x": c * 200 + dc * 100, "y": r * 200 + dr * 100,
+                                       "rotation": rot, "mirrored": False}
+            if (r + c) % 2:
+                load_id = f"LD{r}_{c}"
+                net.add(Load(load_id, bus=f"n{r}_{c}", p_mw=50.0, cos_phi=0.95))
+                layout[load_id] = {"x": c * 200 + 40, "y": r * 200 + 110,
+                                   "rotation": 0, "mirrored": False}
+    net.add(ExternalGrid("GRID", bus="n0_0", z_mode="sk", sk_mva=5000.0, cos_phi=0.1))
+    layout["GRID"] = {"x": -90, "y": 0, "rotation": 0, "mirrored": False}
+    proj = Project(network=net, layout=layout)
+    return NetworkDocument(proj)
+
+
+class Scale(unittest.TestCase):
+    """An IEEE-39-size diagram stays responsive (generous limits, any machine)."""
+
+    def test_building_moving_adding_and_removing(self):
+        import time
+
+        doc = _meshed_document()
+        self.assertGreaterEqual(len(list(doc.network)), 120)     # IEEE 39: ~114
+        t0 = time.perf_counter()
+        scene = SchematicScene(doc)
+        build = time.perf_counter() - t0
+
+        bus = scene.item_for("n2_3")
+        t0 = time.perf_counter()
+        for dx in range(10):
+            bus.setPos(bus.x() + 10, bus.y())
+        move = (time.perf_counter() - t0) / 10
+
+        t0 = time.perf_counter()
+        new_id = scene.place_component("load", QPointF(600, 470))
+        add = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        delete_objects(doc, [new_id])
+        remove = time.perf_counter() - t0
+
+        self.assertLess(build, 3.0, f"building took {build:.2f} s")
+        self.assertLess(move, 0.05, f"a move step took {move * 1000:.1f} ms")
+        self.assertLess(add, 0.25, f"adding took {add * 1000:.0f} ms")
+        self.assertLess(remove, 0.25, f"removing took {remove * 1000:.0f} ms")
+        self.assertEqual(len(scene._items), len(list(doc.network)))
+
+    def test_the_meshed_network_solves(self):
+        from psa.core.cases import Case
+        from psa.core.study import run_case
+
+        res = run_case(_meshed_document().network,
+                       Case("sc", "short_circuit", options={"bus": "n4_7"}))
+        self.assertGreater(abs(res.scalars["I_f"].value), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
 
