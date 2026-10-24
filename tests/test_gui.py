@@ -16,8 +16,9 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QPointF, QSettings, Qt   # noqa: E402
-from PyQt5.QtWidgets import QApplication          # noqa: E402
+import psa.gui  # noqa: E402,F401 - must come before PySide6, see its docstring
+from PySide6.QtCore import QPointF, QSettings, Qt   # noqa: E402
+from PySide6.QtWidgets import QApplication          # noqa: E402
 
 from psa.core.analysis import equivalent_impedance     # noqa: E402
 from psa.core.examples import build_s1, s1_parameter_bindings  # noqa: E402
@@ -37,8 +38,8 @@ _app = QApplication.instance() or QApplication(["tests"])
 # MainWindow saves its geometry and recent files on close.
 _SETTINGS_DIR = tempfile.mkdtemp(prefix="powerlab-test-settings-")
 atexit.register(shutil.rmtree, _SETTINGS_DIR, ignore_errors=True)
-QSettings.setDefaultFormat(QSettings.IniFormat)
-QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _SETTINGS_DIR)
+QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, _SETTINGS_DIR)
 
 
 def s1_document() -> NetworkDocument:
@@ -181,7 +182,7 @@ class UndoRedo(unittest.TestCase):
         self.assertEqual(self.doc.network.get("LD1").bus, bus)
 
     def test_deleted_items_survive_for_undo(self):
-        """The classic PyQt crash: undo must not touch a destroyed C++ object."""
+        """The classic Qt binding crash: undo must not touch a destroyed C++ object."""
         bus = self.scene.place_component("bus", QPointF(0, 0))
         delete_objects(self.doc, [bus])
         self.doc.undo.undo()
@@ -332,9 +333,9 @@ class ConnectionDrag(unittest.TestCase):
     """Dragging a terminal onto a bus, with real mouse events on a view."""
 
     def test_the_mouse_is_released_after_connecting(self):
-        from PyQt5.QtCore import QPoint
-        from PyQt5.QtTest import QTest
-        from PyQt5.QtWidgets import QGraphicsView
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QGraphicsView
 
         from psa.gui.commands import Connect
         from psa.gui.items import TerminalItem
@@ -345,7 +346,7 @@ class ConnectionDrag(unittest.TestCase):
         view = QGraphicsView(scene)
         view.resize(1600, 1000)
         view.show()
-        view.fitInView(scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        view.fitInView(scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
         _app.processEvents()
 
         terminal = next(c for c in scene.item_for("LDb").childItems()
@@ -353,16 +354,16 @@ class ConnectionDrag(unittest.TestCase):
         viewport = view.viewport()
         start = view.mapFromScene(terminal.scenePos())
         target = view.mapFromScene(scene.item_for("bus_b").scenePos())
-        QTest.mousePress(viewport, Qt.LeftButton, Qt.NoModifier, start)
+        QTest.mousePress(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
         QTest.mouseMove(viewport, target)
-        QTest.mouseRelease(viewport, Qt.LeftButton, Qt.NoModifier, target)
+        QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, target)
         _app.processEvents()
         self.assertEqual(doc.network.get("LDb").bus, "bus_b")
         self.assertIsNone(scene.mouseGrabberItem())
 
         # Before the fix this click restarted the drag and created a stray bus.
         n_buses = len(doc.network.buses)
-        QTest.mouseClick(viewport, Qt.LeftButton, Qt.NoModifier, QPoint(5, 5))
+        QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(5, 5))
         _app.processEvents()
         self.assertIsNone(scene._connecting)
         self.assertEqual(len(doc.network.buses), n_buses)
@@ -451,7 +452,7 @@ class MainWindowSmoke(unittest.TestCase):
         with mock.patch("psa.gui.mainwindow.StudyOptionsDialog") as dialog_cls, \
                 mock.patch.object(win, "_run"):
             dialog = dialog_cls.return_value
-            dialog.exec_.return_value = dialog_cls.Accepted
+            dialog.exec.return_value = dialog_cls.DialogCode.Accepted
             dialog.options.return_value = {"bus": "bus_b", "far_bus": "bus_e"}
             win.run_study("s1b")
         self.assertEqual(doc.project.studies["s1b"],
@@ -476,7 +477,7 @@ class MainWindowSmoke(unittest.TestCase):
         import tempfile
         from unittest import mock
 
-        from PyQt5.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
 
         from psa.gui.mainwindow import MainWindow
 
@@ -490,12 +491,12 @@ class MainWindowSmoke(unittest.TestCase):
             doc.params.script_path = str(script)
             win = MainWindow(doc)
             with mock.patch("psa.gui.mainwindow.QMessageBox.question",
-                            return_value=QMessageBox.No) as ask:
+                            return_value=QMessageBox.StandardButton.No) as ask:
                 win.offer_linked_script()
             self.assertTrue(ask.called)
             self.assertFalse(sentinel.exists())
             with mock.patch("psa.gui.mainwindow.QMessageBox.question",
-                            return_value=QMessageBox.Yes):
+                            return_value=QMessageBox.StandardButton.Yes):
                 win.offer_linked_script()
             self.assertTrue(sentinel.exists())
             doc.undo.setClean()

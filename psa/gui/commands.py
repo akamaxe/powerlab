@@ -2,7 +2,7 @@
 
 Deletion keeps the removed dataclass alive on the command, so undo can put back
 the very same object. The corresponding graphics item is likewise kept alive by
-the scene rather than destroyed, which is what stops the classic PyQt crash
+the scene rather than destroyed, which is what stops the classic Qt binding crash
 where undo dereferences an already-deleted C++ object.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from PyQt5.QtWidgets import QUndoCommand
+from PySide6.QtGui import QUndoCommand
 
 from ..core.components import buses_of
 

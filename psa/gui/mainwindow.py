@@ -5,11 +5,9 @@ from __future__ import annotations
 import traceback
 from pathlib import Path
 
-from PyQt5.QtCore import QSettings, Qt
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import (
-    QAction,
-    QActionGroup,
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QLabel,
@@ -45,7 +43,7 @@ def _settings() -> QSettings:
     ``defaultFormat()`` lets the tests redirect everything to a temporary INI
     file instead of the real user settings.
     """
-    return QSettings(QSettings.defaultFormat(), QSettings.UserScope, ORG, APP)
+    return QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, ORG, APP)
 
 
 class MainWindow(QMainWindow):
@@ -104,18 +102,18 @@ class MainWindow(QMainWindow):
 
     def _build_docks(self) -> None:
         self.palette = PaletteList()
-        self._dock("Library", self.palette, Qt.LeftDockWidgetArea, "dock_library")
+        self._dock("Library", self.palette, Qt.DockWidgetArea.LeftDockWidgetArea, "dock_library")
 
         self.variables = VariablesPanel(self.document)
-        self._dock("Variables", self.variables, Qt.LeftDockWidgetArea,
+        self._dock("Variables", self.variables, Qt.DockWidgetArea.LeftDockWidgetArea,
                    "dock_variables")
 
         self.properties = PropertyEditor(self.document)
-        self._dock("Properties", self.properties, Qt.RightDockWidgetArea,
+        self._dock("Properties", self.properties, Qt.DockWidgetArea.RightDockWidgetArea,
                    "dock_properties")
 
         self.results = ResultsPanel(self.document)
-        dock = self._dock("Results", self.results, Qt.BottomDockWidgetArea,
+        dock = self._dock("Results", self.results, Qt.DockWidgetArea.BottomDockWidgetArea,
                           "dock_results")
         dock.setMinimumHeight(240)
 
@@ -124,7 +122,7 @@ class MainWindow(QMainWindow):
         dock = QDockWidget(title, self)
         dock.setObjectName(object_name)
         dock.setWidget(widget)
-        dock.setAllowedAreas(Qt.AllDockWidgetAreas)
+        dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self.addDockWidget(area, dock)
         setattr(self, object_name, dock)
         return dock
@@ -147,29 +145,29 @@ class MainWindow(QMainWindow):
 
     def _build_actions(self) -> None:
         d = self.document
-        self.act_new = self._act("&New", self.new_project, QKeySequence.New)
-        self.act_open = self._act("&Open...", self.open_project, QKeySequence.Open)
-        self.act_save = self._act("&Save", self.save_project, QKeySequence.Save)
+        self.act_new = self._act("&New", self.new_project, QKeySequence.StandardKey.New)
+        self.act_open = self._act("&Open...", self.open_project, QKeySequence.StandardKey.Open)
+        self.act_save = self._act("&Save", self.save_project, QKeySequence.StandardKey.Save)
         self.act_save_as = self._act("Save &As...", self.save_project_as,
-                                     QKeySequence.SaveAs)
+                                     QKeySequence.StandardKey.SaveAs)
         self.act_example = self._act(
             "Load Assignment S1 example", self.load_example,
             tip="The EG2100 S1 network with A = 80, already validated")
-        self.act_quit = self._act("E&xit", self.close, QKeySequence.Quit)
+        self.act_quit = self._act("E&xit", self.close, QKeySequence.StandardKey.Quit)
 
         self.act_undo = d.undo.createUndoAction(self, "&Undo")
-        self.act_undo.setShortcut(QKeySequence.Undo)
+        self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
         self.act_redo = d.undo.createRedoAction(self, "&Redo")
-        self.act_redo.setShortcut(QKeySequence.Redo)
+        self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
         self.act_delete = self._act("&Delete", self.delete_selection,
-                                    QKeySequence.Delete)
+                                    QKeySequence.StandardKey.Delete)
         self.act_select_all = self._act("Select &All", self.select_all,
-                                        QKeySequence.SelectAll)
+                                        QKeySequence.StandardKey.SelectAll)
 
         self.act_zoom_in = self._act("Zoom &In", lambda: self.view.zoom_by(1.2),
-                                     QKeySequence.ZoomIn)
+                                     QKeySequence.StandardKey.ZoomIn)
         self.act_zoom_out = self._act("Zoom &Out", lambda: self.view.zoom_by(1 / 1.2),
-                                      QKeySequence.ZoomOut)
+                                      QKeySequence.StandardKey.ZoomOut)
         self.act_zoom_fit = self._act("&Fit to window", self.view.zoom_fit, "Ctrl+0")
         self.act_zoom_reset = self._act("&Actual size", self.view.zoom_reset, "Ctrl+1")
         self.act_overlay = self._act(
@@ -315,11 +313,11 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self, "Unsaved changes",
             f"{self.document.title()} has unsaved changes. Save before continuing?",
-            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-            QMessageBox.Save)
-        if answer == QMessageBox.Cancel:
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save)
+        if answer == QMessageBox.StandardButton.Cancel:
             return False
-        if answer == QMessageBox.Save:
+        if answer == QMessageBox.StandardButton.Save:
             return self.save_project()
         return True
 
@@ -484,8 +482,8 @@ class MainWindow(QMainWindow):
                 self, "Delete connected components",
                 f"These components are attached to the bus(es) you are "
                 f"deleting and will be deleted too:\n\n  {names}\n\nContinue?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if answer != QMessageBox.Yes:
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
                 return
         delete_objects(self.document, ids)
         self.properties.bind(None)
@@ -516,7 +514,7 @@ class MainWindow(QMainWindow):
 
     def edit_bases(self) -> None:
         dialog = BaseSettingsDialog(self.document, self)
-        if dialog.exec_() == BaseSettingsDialog.Accepted:
+        if dialog.exec() == BaseSettingsDialog.DialogCode.Accepted:
             self.document.undo.push(
                 SetNetworkSettings(self.document, *dialog.values()))
 
@@ -534,8 +532,8 @@ class MainWindow(QMainWindow):
             self, "Run this script?",
             f"PowerLab will execute\n\n{path}\n\nas ordinary Python to read its "
             f"numeric variables. Only do this with a file you trust. Continue?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer != QMessageBox.Yes:
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
             return
         from .commands import SetParameters
         params = self.document.params
@@ -559,8 +557,8 @@ class MainWindow(QMainWindow):
             f"trust. Run it now?\n\n(If you say no, the values saved in the "
             f"project are used; the Reload button in the Variables panel runs "
             f"it later.)",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer == QMessageBox.Yes:
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
             self.reload_variable_script()
 
     def reload_variable_script(self) -> None:
@@ -584,7 +582,7 @@ class MainWindow(QMainWindow):
         if study.option_fields:
             defaults = self._fill_defaults(key, defaults)
             dialog = StudyOptionsDialog(self.document, study, defaults, self)
-            if dialog.exec_() != StudyOptionsDialog.Accepted:
+            if dialog.exec() != StudyOptionsDialog.DialogCode.Accepted:
                 return
             options = dialog.options()
             remembered = {k: v for k, v in options.items()
@@ -748,12 +746,12 @@ class MainWindow(QMainWindow):
 
     def _error(self, title: str, exc: Exception, brief: bool = False) -> None:
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Warning)
+        box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(title)
         box.setText(str(exc))
         if not brief:
             box.setDetailedText(traceback.format_exc())
-        box.exec_()
+        box.exec()
         self.results.append_log(f"{title}: {exc}")
 
     def about(self) -> None:
@@ -776,10 +774,10 @@ class MainWindow(QMainWindow):
         self.dock_library.setMinimumWidth(240)
         self.dock_properties.setMinimumWidth(300)
         self.resizeDocks([self.dock_library, self.dock_variables],
-                         [420, 250], Qt.Vertical)
+                         [420, 250], Qt.Orientation.Vertical)
         self.resizeDocks([self.dock_library, self.dock_properties],
-                         [275, 330], Qt.Horizontal)
-        self.resizeDocks([self.dock_results], [320], Qt.Vertical)
+                         [275, 330], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.dock_results], [320], Qt.Orientation.Vertical)
 
     def _restore_window_state(self) -> None:
         settings = _settings()

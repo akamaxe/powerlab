@@ -6,8 +6,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import style as st
 from .document import NetworkDocument, blank_document
@@ -17,13 +16,7 @@ EXAMPLE_PROJECT = Path(__file__).resolve().parents[2] / "examples" / "s1_a80.psn
 
 
 def create_app(argv: list[str] | None = None) -> QApplication:
-    """Build the QApplication with High-DPI enabled.
-
-    These attributes must be set *before* the QApplication exists, or the
-    diagram renders blurry on a scaled Windows display.
-    """
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    """Build the QApplication. Qt 6 scales for High-DPI displays by itself."""
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("PowerLab")
     app.setOrganizationName("PowerLab")
@@ -58,10 +51,10 @@ def install_excepthook(parent=None) -> None:
         text = "".join(traceback.format_exception(exc_type, exc, tb))
         sys.stderr.write(text)
         box = QMessageBox(parent)
-        box.setIcon(QMessageBox.Critical)
+        box.setIcon(QMessageBox.Icon.Critical)
         box.setWindowTitle("Unexpected error")
         box.setText(str(exc) or exc_type.__name__)
         box.setDetailedText(text)
-        box.exec_()
+        box.exec()
 
     sys.excepthook = hook

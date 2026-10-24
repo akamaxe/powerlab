@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QLineF, QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QTransform
-from PyQt5.QtWidgets import (
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QPainter, QTransform
+from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsScene,
@@ -29,9 +29,9 @@ SCENE_RECT = QRectF(-5000, -5000, 10000, 10000)
 class SchematicScene(QGraphicsScene):
     """Holds the graphics items and keeps them in step with the document."""
 
-    selectionInfoChanged = pyqtSignal(str)      # id of the last-pressed object
-    statusMessage = pyqtSignal(str)
-    requestProperties = pyqtSignal(str)
+    selectionInfoChanged = Signal(str)      # id of the last-pressed object
+    statusMessage = Signal(str)
+    requestProperties = Signal(str)
 
     def __init__(self, document, parent=None):
         # Parent the scene to the document (a QObject) when no parent is given.
@@ -234,7 +234,7 @@ class SchematicScene(QGraphicsScene):
         start = terminal.scenePos()
         self._preview = QGraphicsLineItem(QLineF(start, start))
         self._preview.setPen(st.pen(st.VALID_TARGET, 1.8, cosmetic=True,
-                                    style=Qt.DashLine))
+                                    style=Qt.PenStyle.DashLine))
         self._preview.setZValue(st.Z_PREVIEW)
         self.addItem(self._preview)
         self._set_bus_highlight(True)
@@ -289,7 +289,7 @@ class SchematicScene(QGraphicsScene):
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
-        if self._connecting is not None and event.button() == Qt.RightButton:
+        if self._connecting is not None and event.button() == Qt.MouseButton.RightButton:
             self._cancel_connection()
             event.accept()
             return
@@ -304,7 +304,7 @@ class SchematicScene(QGraphicsScene):
             self.selectionInfoChanged.emit(self._last_pressed)
 
         super().mousePressEvent(event)
-        if event.button() == Qt.LeftButton and self._connecting is None:
+        if event.button() == Qt.MouseButton.LeftButton and self._connecting is None:
             self._drag_start = {
                 i.comp_id: dict(self.document.project.layout.get(i.comp_id, {}))
                 for i in self.selectedItems() if isinstance(i, ComponentItem)
@@ -362,7 +362,7 @@ class SchematicScene(QGraphicsScene):
         doc.undo.endMacro()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape and self._connecting is not None:
+        if event.key() == Qt.Key.Key_Escape and self._connecting is not None:
             self._cancel_connection()
             event.accept()
             return
@@ -525,14 +525,14 @@ class SchematicView(QGraphicsView):
 
     def __init__(self, scene: SchematicScene, parent=None):
         super().__init__(scene, parent)
-        self.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
-        self.setDragMode(QGraphicsView.RubberBandDrag)
+        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
+        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         # Anchor under the mouse, or zooming drifts away from the cursor.
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAcceptDrops(True)
-        self.setViewportUpdateMode(QGraphicsView.SmartViewportUpdate)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.SmartViewportUpdate)
         self._panning = False
         self._space = False
         self._pan_from = None
@@ -541,7 +541,7 @@ class SchematicView(QGraphicsView):
     # -- zoom ---------------------------------------------------------- #
 
     def wheelEvent(self, event):
-        if event.modifiers() & Qt.ControlModifier:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             factor = 1.15 ** (event.angleDelta().y() / 120.0)
             scale = self.transform().m11() * factor
             if self.MIN_SCALE <= scale <= self.MAX_SCALE:
@@ -563,7 +563,7 @@ class SchematicView(QGraphicsView):
             self.resetTransform()
             self.centerOn(0, 0)
             return
-        self.fitInView(items.adjusted(-40, -40, 40, 40), Qt.KeepAspectRatio)
+        self.fitInView(items.adjusted(-40, -40, 40, 40), Qt.AspectRatioMode.KeepAspectRatio)
         if self.transform().m11() > 1.6:
             self.resetTransform()
             self.centerOn(items.center())
@@ -575,25 +575,25 @@ class SchematicView(QGraphicsView):
 
     # -- pan ----------------------------------------------------------- #
 
-    toolConsumed = pyqtSignal()
+    toolConsumed = Signal()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MiddleButton or (
-                self._space and event.button() == Qt.LeftButton):
+        if event.button() == Qt.MouseButton.MiddleButton or (
+                self._space and event.button() == Qt.MouseButton.LeftButton):
             self._panning = True
-            self._pan_from = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
+            self._pan_from = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
-        if self._pending_tool and event.button() == Qt.LeftButton:
+        if self._pending_tool and event.button() == Qt.MouseButton.LeftButton:
             self.scene().place_component(
-                self._pending_tool, self.mapToScene(event.pos()))
-            if not (event.modifiers() & Qt.ShiftModifier):
+                self._pending_tool, self.mapToScene(event.position().toPoint()))
+            if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                 self.arm_tool(None)
                 self.toolConsumed.emit()
             event.accept()
             return
-        if self._pending_tool and event.button() == Qt.RightButton:
+        if self._pending_tool and event.button() == Qt.MouseButton.RightButton:
             self.arm_tool(None)
             self.toolConsumed.emit()
             event.accept()
@@ -602,8 +602,8 @@ class SchematicView(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         if self._panning and self._pan_from is not None:
-            delta = event.pos() - self._pan_from
-            self._pan_from = event.pos()
+            delta = event.position().toPoint() - self._pan_from
+            self._pan_from = event.position().toPoint()
             self.horizontalScrollBar().setValue(
                 self.horizontalScrollBar().value() - delta.x())
             self.verticalScrollBar().setValue(
@@ -613,26 +613,26 @@ class SchematicView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._panning and event.button() in (Qt.MiddleButton, Qt.LeftButton):
+        if self._panning and event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton):
             self._panning = False
             self._pan_from = None
-            self.setCursor(Qt.OpenHandCursor if self._space else Qt.ArrowCursor)
+            self.setCursor(Qt.CursorShape.OpenHandCursor if self._space else Qt.CursorShape.ArrowCursor)
             event.accept()
             return
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space = True
-            self.setCursor(Qt.OpenHandCursor)
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept()
             return
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
-        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space = False
-            self.setCursor(Qt.ArrowCursor)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
             return
         super().keyReleaseEvent(event)
@@ -642,7 +642,7 @@ class SchematicView(QGraphicsView):
     def arm_tool(self, type_name: str | None) -> None:
         """Next left click places this component type."""
         self._pending_tool = type_name
-        self.setCursor(Qt.CrossCursor if type_name else Qt.ArrowCursor)
+        self.setCursor(Qt.CursorShape.CrossCursor if type_name else Qt.CursorShape.ArrowCursor)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasText() and \
@@ -657,5 +657,5 @@ class SchematicView(QGraphicsView):
     def dropEvent(self, event):
         text = event.mimeData().text()
         if text in TYPE_REGISTRY:
-            self.scene().place_component(text, self.mapToScene(event.pos()))
+            self.scene().place_component(text, self.mapToScene(event.position().toPoint()))
             event.acceptProposedAction()

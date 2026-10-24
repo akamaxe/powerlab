@@ -12,7 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from PyQt5.QtWidgets import QMessageBox                         # noqa: E402
+import psa.gui  # noqa: E402,F401 - must come before PySide6, see its docstring
+from PySide6.QtWidgets import QMessageBox                         # noqa: E402
 
 from psa.gui.app import create_app, initial_document, install_excepthook  # noqa: E402
 from psa.gui.mainwindow import MainWindow                       # noqa: E402
@@ -30,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         QMessageBox.critical(window, "Could not open the project", error)
     else:
         window.offer_linked_script()
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

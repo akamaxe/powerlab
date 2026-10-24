@@ -7,8 +7,8 @@ consistent and can be restyled in one place.
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont, QPen
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont, QPen
 
 # --------------------------------------------------------------------------- #
 # Palette
@@ -66,10 +66,10 @@ Z_PREVIEW = 20
 
 
 def pen(color: QColor, width: float = SYMBOL_PEN, cosmetic: bool = False,
-        style: Qt.PenStyle = Qt.SolidLine) -> QPen:
+        style: Qt.PenStyle = Qt.PenStyle.SolidLine) -> QPen:
     p = QPen(color, width, style)
-    p.setCapStyle(Qt.RoundCap)
-    p.setJoinStyle(Qt.RoundJoin)
+    p.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     p.setCosmetic(cosmetic)
     return p
 
@@ -81,7 +81,7 @@ def symbol_pen(selected: bool = False, hovered: bool = False,
     if hovered:
         return pen(HOVER, SYMBOL_PEN + 0.4)
     if not in_service:
-        return pen(OUT_OF_SERVICE, SYMBOL_PEN, style=Qt.DashLine)
+        return pen(OUT_OF_SERVICE, SYMBOL_PEN, style=Qt.PenStyle.DashLine)
     return pen(INK, SYMBOL_PEN)
 
 
@@ -94,7 +94,7 @@ def bus_pen(selected: bool = False, hovered: bool = False,
     if hovered:
         return pen(HOVER, BUS_WIDTH)
     if not in_service:
-        return pen(OUT_OF_SERVICE, BUS_WIDTH, style=Qt.DashLine)
+        return pen(OUT_OF_SERVICE, BUS_WIDTH, style=Qt.PenStyle.DashLine)
     return pen(INK, BUS_WIDTH)
 
 
@@ -102,7 +102,7 @@ def wire_pen(selected: bool = False, in_service: bool = True) -> QPen:
     if selected:
         return pen(SELECTION, 2.0, cosmetic=True)
     if not in_service:
-        return pen(OUT_OF_SERVICE, 1.6, cosmetic=True, style=Qt.DashLine)
+        return pen(OUT_OF_SERVICE, 1.6, cosmetic=True, style=Qt.PenStyle.DashLine)
     return pen(WIRE, 1.6, cosmetic=True)
 
 
@@ -178,4 +178,15 @@ QListWidget { background: #ffffff; border: 1px solid #cfd6db; }
 QListWidget::item { padding: 5px 6px; }
 QListWidget::item:selected { background: #cfe2f5; color: #141719; }
 QStatusBar { background: #e9edf0; border-top: 1px solid #cfd6db; }
+QScrollBar:vertical { background: #eef1f3; width: 12px; margin: 0; border: 0; }
+QScrollBar:horizontal { background: #eef1f3; height: 12px; margin: 0; border: 0; }
+QScrollBar::handle:vertical {
+    background: #c3ccd2; min-height: 24px; border-radius: 4px; margin: 2px;
+}
+QScrollBar::handle:horizontal {
+    background: #c3ccd2; min-width: 24px; border-radius: 4px; margin: 2px;
+}
+QScrollBar::handle:hover { background: #a9b4bb; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: 0; background: none; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """

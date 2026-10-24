@@ -1,7 +1,7 @@
 """The editing document: the project, the undo stack and the change signals.
 
 **Nothing outside :mod:`psa.gui.commands` mutates the network.** Every edit goes
-through a :class:`~PyQt5.QtWidgets.QUndoCommand` that calls one of the private
+through a :class:`~PySide6.QtGui.QUndoCommand` that calls one of the private
 ``_apply_*`` methods here. That single rule is what makes undo/redo nearly free
 and keeps the results-are-stale bookkeeping in one place.
 """
@@ -12,8 +12,8 @@ import copy
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QUndoStack
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QUndoStack
 
 from ..core.components import TYPE_REGISTRY, buses_of
 from ..core.errors import Issue
@@ -32,13 +32,13 @@ class Selection:
 class NetworkDocument(QObject):
     """Owns the project and broadcasts every change."""
 
-    structureChanged = pyqtSignal()             # objects added or removed
-    componentChanged = pyqtSignal(str)          # one object's data changed
-    connectivityChanged = pyqtSignal(str)       # a terminal was re-attached
-    layoutChanged = pyqtSignal(str)             # an item moved or resized
-    resultsInvalidated = pyqtSignal()
-    dirtyChanged = pyqtSignal(bool)
-    parametersChanged = pyqtSignal()
+    structureChanged = Signal()             # objects added or removed
+    componentChanged = Signal(str)          # one object's data changed
+    connectivityChanged = Signal(str)       # a terminal was re-attached
+    layoutChanged = Signal(str)             # an item moved or resized
+    resultsInvalidated = Signal()
+    dirtyChanged = Signal(bool)
+    parametersChanged = Signal()
 
     def __init__(self, project: Project | None = None, parent=None):
         super().__init__(parent)

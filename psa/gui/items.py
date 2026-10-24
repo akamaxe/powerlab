@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import math
 
-from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QFontMetricsF, QPainterPath, QPolygonF
-from PyQt5.QtWidgets import (
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QFontMetricsF, QPainterPath, QPolygonF
+from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsPathItem,
@@ -45,9 +45,9 @@ class TerminalItem(QGraphicsItem):
         self.setPos(pos)
         self.setZValue(st.Z_TERMINAL)
         self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CrossCursor)
-        self.setFlag(QGraphicsItem.ItemIsMovable, False)
-        self.setFlag(QGraphicsItem.ItemIsSelectable, False)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
 
     # -- geometry ------------------------------------------------------ #
 
@@ -65,7 +65,7 @@ class TerminalItem(QGraphicsItem):
         painter.setPen(st.pen(st.TERMINAL_ACTIVE if self._hover else st.TERMINAL,
                               1.2, cosmetic=True))
         painter.setBrush(st.TERMINAL_ACTIVE if self._hover
-                         else (st.INK if connected else Qt.white))
+                         else (st.INK if connected else Qt.GlobalColor.white))
         painter.drawEllipse(QPointF(0, 0), r, r)
 
     # -- interaction --------------------------------------------------- #
@@ -83,7 +83,7 @@ class TerminalItem(QGraphicsItem):
         super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             scene = self.scene()
             if scene is not None and hasattr(scene, "begin_connection"):
                 scene.begin_connection(self)
@@ -100,8 +100,8 @@ class TerminalItem(QGraphicsItem):
 class ComponentItem(QGraphicsObject):
     """Common behaviour: identity, terminals, label, snapping, move reporting."""
 
-    geometryChanged = pyqtSignal(str)
-    doubleClicked = pyqtSignal(str)
+    geometryChanged = Signal(str)
+    doubleClicked = Signal(str)
 
     #: (x, y, bus-field-name) for each terminal, in local coordinates.
     TERMINALS: tuple[tuple[float, float, str], ...] = ()
@@ -116,9 +116,9 @@ class ComponentItem(QGraphicsObject):
         # Without ItemSendsGeometryChanges, itemChange never fires: items would
         # move and wires would silently stay behind. Set once, here, so no
         # subclass can forget it.
-        self.setFlags(QGraphicsItem.ItemIsSelectable
-                      | QGraphicsItem.ItemIsMovable
-                      | QGraphicsItem.ItemSendsGeometryChanges)
+        self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+                      | QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+                      | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
         self.setZValue(st.Z_SYMBOL)
 
@@ -213,15 +213,15 @@ class ComponentItem(QGraphicsObject):
     # -- Qt hooks ------------------------------------------------------ #
 
     def itemChange(self, change, value):
-        if change == QGraphicsItem.ItemPositionChange and self.scene() is not None:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self.scene() is not None:
             grid = getattr(self.scene(), "grid", st.GRID)
             return QPointF(round(value.x() / grid) * grid,
                            round(value.y() / grid) * grid)
-        if change == QGraphicsItem.ItemPositionHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             scene = self.scene()
             if scene is not None and hasattr(scene, "notify_moved"):
                 scene.notify_moved(self)
-        if change == QGraphicsItem.ItemSelectedHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
         return super().itemChange(change, value)
 
@@ -312,7 +312,7 @@ class BusItem(ComponentItem):
             painter.setBrush(st.INK if self.is_in_service() else st.OUT_OF_SERVICE)
             painter.drawEllipse(QPointF(0, 0), 4.5, 4.5)
             if self.highlight or self.isSelected():
-                painter.setBrush(Qt.NoBrush)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawEllipse(QPointF(0, 0), 9.0, 9.0)
             return
         painter.setPen(st.bus_pen(self.isSelected(), self._hover,
@@ -393,7 +393,7 @@ class TransformerItem(BranchItem):
 
     def paint(self, painter, option, widget=None):
         painter.setPen(self.current_pen())
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         off = self.R * 0.62
         painter.drawEllipse(QPointF(-off, 0), self.R, self.R)
         painter.drawEllipse(QPointF(off, 0), self.R, self.R)
@@ -462,7 +462,7 @@ class ImpedanceItem(BranchItem):
 
     def paint(self, painter, option, widget=None):
         painter.setPen(self.current_pen())
-        painter.setBrush(Qt.white)
+        painter.setBrush(Qt.GlobalColor.white)
         painter.drawRect(QRectF(-self.W / 2, -self.H / 2, self.W, self.H))
         self._leads(painter, self.W / 2)
 
@@ -525,7 +525,7 @@ class ShuntCapItem(ShuntItem):
         inductive = c is not None and c.q_mvar < 0
         p = self.current_pen()
         painter.setPen(p)
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
         if inductive:
             self._lead(painter, 2)
@@ -572,7 +572,7 @@ class SourceItem(ComponentItem):
     def paint(self, painter, option, widget=None):
         p = self.current_pen()
         painter.setPen(p)
-        painter.setBrush(Qt.white)
+        painter.setBrush(Qt.GlobalColor.white)
         painter.drawEllipse(QPointF(0, 0), self.R, self.R)
         painter.drawLine(QPointF(self.R, 0), QPointF(self.REACH, 0))
 
@@ -580,7 +580,7 @@ class SourceItem(ComponentItem):
         path = QPainterPath(QPointF(-6.5, 0))
         path.cubicTo(QPointF(-3.2, -8), QPointF(0, 8), QPointF(0, 0))
         path.cubicTo(QPointF(0, -8), QPointF(3.2, 8), QPointF(6.5, 0))
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 
 
@@ -607,7 +607,7 @@ class WireItem(QGraphicsPathItem):
         self.waypoints: list[QPointF] = []
         self.setZValue(st.Z_WIRE)
         self.setPen(st.wire_pen())
-        self.setFlag(QGraphicsItem.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
 
     @property
     def key(self) -> str:
@@ -661,7 +661,7 @@ class OverlayBadge(QGraphicsItem):
         self.colour = colour or st.RESULT_TEXT
         self.setZValue(st.Z_OVERLAY)
         self.setPos(anchor)
-        self.setFlag(QGraphicsItem.ItemIgnoresTransformations, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
         self._rect = self._measure()
 
     def _measure(self) -> QRectF:
@@ -677,7 +677,7 @@ class OverlayBadge(QGraphicsItem):
         return self._rect.adjusted(-1, -1, 1, 1)
 
     def paint(self, painter, option, widget=None):
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(st.RESULT_BG)
         painter.drawRoundedRect(self._rect, 2, 2)
         painter.setPen(st.pen(self.colour, 1.0, cosmetic=True))

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QMimeData, QPointF, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QDrag, QIcon, QPainter, QPixmap
-from PyQt5.QtWidgets import (
+from PySide6.QtCore import QMimeData, QPointF, QSize, Qt, Signal
+from PySide6.QtGui import QDrag, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
@@ -52,14 +52,14 @@ PALETTE_ITEMS = [
 def symbol_icon(type_name: str, size: int = 34) -> QIcon:
     """Render the real schematic symbol as the palette icon."""
     pix = QPixmap(size, size)
-    pix.fill(Qt.transparent)
+    pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
-    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.translate(size / 2, size / 2)
     scale = 0.42 if type_name != "bus" else 0.40
     painter.scale(scale, scale)
     painter.setPen(st.pen(st.INK, 3.0))
-    painter.setBrush(Qt.NoBrush)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
 
     if type_name == "bus":
         painter.setPen(st.pen(st.INK, 7.0))
@@ -80,7 +80,7 @@ def symbol_icon(type_name: str, size: int = 34) -> QIcon:
     elif type_name == "load":
         painter.drawLine(QPointF(0, -30), QPointF(0, -6))
         painter.setBrush(st.INK)
-        from PyQt5.QtGui import QPolygonF
+        from PySide6.QtGui import QPolygonF
         painter.drawPolygon(QPolygonF(
             [QPointF(-13, -6), QPointF(13, -6), QPointF(0, 20)]))
     elif type_name == "shunt":
@@ -93,13 +93,13 @@ def symbol_icon(type_name: str, size: int = 34) -> QIcon:
     elif type_name == "source":
         painter.drawEllipse(QPointF(0, 0), 18, 18)
         painter.drawLine(QPointF(18, 0), QPointF(32, 0))
-        from PyQt5.QtGui import QPainterPath
+        from PySide6.QtGui import QPainterPath
         path = QPainterPath(QPointF(-10, 0))
         path.cubicTo(QPointF(-5, -12), QPointF(0, 12), QPointF(0, 0))
         path.cubicTo(QPointF(0, -12), QPointF(5, 12), QPointF(10, 0))
         painter.drawPath(path)
     elif type_name == "impedance":
-        painter.setBrush(Qt.white)
+        painter.setBrush(Qt.GlobalColor.white)
         painter.drawRect(-16, -9, 32, 18)
         painter.drawLine(QPointF(-30, 0), QPointF(-16, 0))
         painter.drawLine(QPointF(16, 0), QPointF(30, 0))
@@ -110,33 +110,33 @@ def symbol_icon(type_name: str, size: int = 34) -> QIcon:
 class PaletteList(QListWidget):
     """Component library. Click to arm placement, or drag onto the canvas."""
 
-    toolPicked = pyqtSignal(str)
+    toolPicked = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setIconSize(QSize(34, 34))
         self.setDragEnabled(True)
-        self.setDragDropMode(QAbstractItemView.DragOnly)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         for type_name, label, tip in PALETTE_ITEMS:
             item = QListWidgetItem(symbol_icon(type_name), label)
-            item.setData(Qt.UserRole, type_name)
+            item.setData(Qt.ItemDataRole.UserRole, type_name)
             item.setToolTip(f"{tip}\n\nClick to place, or drag onto the canvas. "
                             f"Hold Shift while placing to add several.")
             self.addItem(item)
         self.itemClicked.connect(
-            lambda it: self.toolPicked.emit(it.data(Qt.UserRole)))
+            lambda it: self.toolPicked.emit(it.data(Qt.ItemDataRole.UserRole)))
 
     def startDrag(self, actions):
         item = self.currentItem()
         if item is None:
             return
         mime = QMimeData()
-        mime.setText(item.data(Qt.UserRole))
+        mime.setText(item.data(Qt.ItemDataRole.UserRole))
         drag = QDrag(self)
         drag.setMimeData(mime)
         drag.setPixmap(item.icon().pixmap(34, 34))
-        drag.exec_(Qt.CopyAction)
+        drag.exec(Qt.DropAction.CopyAction)
 
     def clear_selection(self) -> None:
         self.clearSelection()
@@ -156,7 +156,7 @@ class ParametricLineEdit(QLineEdit):
     the way a spreadsheet cell behaves.
     """
 
-    committed = pyqtSignal(str)
+    committed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,7 +196,7 @@ class PropertyEditor(QScrollArea):
 
         self._form_host = QWidget()
         self._form = QFormLayout(self._form_host)
-        self._form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._form.setContentsMargins(0, 0, 0, 0)
         self._form.setSpacing(5)
         self._layout.addWidget(self._form_host)
@@ -228,7 +228,7 @@ class PropertyEditor(QScrollArea):
             return
         obj = self.document.network.get(obj_id)
         self._title.setText(f"{obj.name or obj.id}   <small>({obj.TYPE})</small>")
-        self._title.setTextFormat(Qt.RichText)
+        self._title.setTextFormat(Qt.TextFormat.RichText)
 
         self._building = True
         scope = self.document.params.values()
@@ -484,8 +484,8 @@ def _coerce_numeric(spec: FieldSpec, value):
 class VariablesPanel(QWidget):
     """Project variables, plus variables loaded from the user's Python script."""
 
-    loadScriptRequested = pyqtSignal()
-    reloadScriptRequested = pyqtSignal()
+    loadScriptRequested = Signal()
+    reloadScriptRequested = Signal()
 
     def __init__(self, document, parent=None):
         super().__init__(parent)
@@ -517,12 +517,12 @@ class VariablesPanel(QWidget):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Name", "Expression", "Value", "Source"])
         self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents)
+            2, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeToContents)
+            3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         self.table.itemChanged.connect(self._on_edited)
         layout.addWidget(self.table, 1)
@@ -569,7 +569,7 @@ class VariablesPanel(QWidget):
             for c, text in enumerate((name, expr, _num_text(value), source)):
                 cell = QTableWidgetItem(text)
                 if c in (2, 3) or not editable:
-                    cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                    cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if name in problems and c == 1:
                     cell.setToolTip(problems[name])
                     cell.setForeground(st.INVALID)
@@ -671,8 +671,8 @@ class ResultsPanel(QTabWidget):
         if res.headline:
             head = QLabel(res.headline.replace("\n", "<br>"))
             head.setObjectName("headline")
-            head.setTextFormat(Qt.RichText)
-            head.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            head.setTextFormat(Qt.TextFormat.RichText)
+            head.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             head.setFont(st.result_font(11))
             layout.addWidget(head)
 
@@ -692,7 +692,7 @@ class ResultsPanel(QTabWidget):
 
 def _table_block(table) -> QWidget:
     box = QFrame()
-    box.setFrameShape(QFrame.NoFrame)
+    box.setFrameShape(QFrame.Shape.NoFrame)
     layout = QVBoxLayout(box)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(3)
@@ -709,8 +709,8 @@ def _table_block(table) -> QWidget:
     else:
         widget.horizontalHeader().setVisible(False)
     widget.verticalHeader().setVisible(False)
-    widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    widget.setSelectionBehavior(QAbstractItemView.SelectItems)
+    widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
     widget.setAlternatingRowColors(True)
     widget.setFont(st.result_font(9))
 
@@ -718,18 +718,18 @@ def _table_block(table) -> QWidget:
         for c, cell in enumerate(row):
             item = QTableWidgetItem(str(cell))
             if _looks_numeric(cell):
-                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             widget.setItem(r, c, item)
 
     widget.resizeColumnsToContents()
     header = widget.horizontalHeader()
     if cols:
-        header.setSectionResizeMode(cols - 1, QHeaderView.Stretch)
+        header.setSectionResizeMode(cols - 1, QHeaderView.ResizeMode.Stretch)
     height = widget.horizontalHeader().height() * (1 if table.headers else 0)
     for r in range(widget.rowCount()):
         height += widget.rowHeight(r)
     widget.setFixedHeight(height + 6)
-    widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
+    widget.setSizeAdjustPolicy(QTableWidget.SizeAdjustPolicy.AdjustToContents)
     layout.addWidget(widget)
 
     if table.note:
