@@ -226,6 +226,13 @@ class SchematicScene(QGraphicsScene):
         self.document.undo.push(SetWire(self.document, wire.key, after, old=before,
                                         text="Edit wire" if after else "Straighten wire"))
 
+    def commit_label_offset(self, item: ComponentItem) -> None:
+        """The user dragged an element's name: remember where, in one undo step."""
+        old = dict(self.document.project.layout.get(item.comp_id, {}))
+        off = item.label_offset()
+        new = dict(old, label_offset=[round(off.x(), 1), round(off.y(), 1)])
+        self.document.undo.push(SetLayout(self.document, item.comp_id, new, "Move label"))
+
     def commit_bus_resize(self, bus: BusItem, before: dict) -> None:
         new = dict(before)
         new.update({"x": bus.x(), "y": bus.y(), "length": bus.length})
@@ -245,6 +252,11 @@ class SchematicScene(QGraphicsScene):
             item.set_length(float(layout.get("length", item.length)))
         elif "rotation" in layout:
             item.setRotation(float(layout.get("rotation") or 0))
+        off = layout.get("label_offset")
+        if off:
+            item.set_label_offset(float(off[0]), float(off[1]), custom=True)
+        else:
+            item.reset_label()
         self.notify_moved(item)
 
     # ------------------------------------------------------------------ #

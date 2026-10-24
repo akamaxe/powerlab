@@ -94,6 +94,48 @@ class TerminalItem(QGraphicsItem):
 
 
 # --------------------------------------------------------------------------- #
+# Labels
+# --------------------------------------------------------------------------- #
+
+
+class LabelText(QGraphicsSimpleTextItem):
+    """An element's name: drag it to move the name (and its detail line)."""
+
+    def __init__(self, owner: "ComponentItem"):
+        super().__init__("", owner)
+        self.owner = owner
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self._press: QPointF | None = None
+        self._start = QPointF()
+
+    def mousePressEvent(self, event):
+        self._press = event.scenePos()
+        self._start = QPointF(self.owner.label_offset())
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._press is None:
+            return
+        d = event.scenePos() - self._press
+        # The offset lives in the unrotated symbol's frame.
+        theta = math.radians(round(self.owner.rotation()) % 360)
+        c, s = math.cos(theta), math.sin(theta)
+        local = QPointF(d.x() * c + d.y() * s, -d.x() * s + d.y() * c)
+        self.owner.set_label_offset(self._start.x() + local.x(),
+                                    self._start.y() + local.y(), custom=True)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._press is not None and self.owner.scene() is not None:
+            moved = self.owner.label_offset() != self._start
+            if moved and hasattr(self.owner.scene(), "commit_label_offset"):
+                self.owner.scene().commit_label_offset(self.owner)
+        self._press = None
+        event.accept()
+
+
+# --------------------------------------------------------------------------- #
 # Base component item
 # --------------------------------------------------------------------------- #
 
@@ -127,7 +169,8 @@ class ComponentItem(QGraphicsObject):
         for i, (tx, ty, field_name) in enumerate(self.TERMINALS):
             self.terminals.append(TerminalItem(self, i, QPointF(tx, ty), field_name))
 
-        self.label = QGraphicsSimpleTextItem("", self)
+        self._custom_label = False
+        self.label = LabelText(self)
         self.label.setFont(st.label_font())
         self.label.setZValue(st.Z_LABEL)
         self.sublabel = QGraphicsSimpleTextItem("", self)
@@ -208,10 +251,29 @@ class ComponentItem(QGraphicsObject):
             item.setPos(x * c + y * s, -x * s + y * c)            # back to local
         self.sublabel.setVisible(has_sub)
 
-    def set_label_offset(self, dx: float, dy: float) -> None:
-        """``(dx, dy)`` is where the *centre* of the name sits, in local units."""
+    def set_label_offset(self, dx: float, dy: float, custom: bool = False) -> None:
+        """``(dx, dy)`` is where the *centre* of the name sits, in local units.
+
+        ``custom`` marks an offset the user chose (by dragging the name); the
+        automatic placement then leaves it alone.
+        """
+        if custom:
+            self._custom_label = True
+        elif self._custom_label:
+            return
         self._label_offset = QPointF(dx, dy)
         self._place_labels()
+
+    def label_offset(self) -> QPointF:
+        return QPointF(self._label_offset)
+
+    def reset_label(self) -> None:
+        """Forget a dragged label position and go back to the automatic one."""
+        self._custom_label = False
+        self._default_label()
+
+    def _default_label(self) -> None:
+        self.set_label_offset(0, -30)
 
     # -- geometry ------------------------------------------------------ #
 
@@ -402,6 +464,9 @@ class BusItem(ComponentItem):
         return super().itemChange(change, value)
 
     def _reposition_label(self) -> None:
+        self._default_label()
+
+    def _default_label(self) -> None:
         if self.orientation == "V":
             self.set_label_offset(0, -self.length / 2 - 22)
         else:
@@ -486,6 +551,9 @@ class BranchItem(ComponentItem):
 
     def __init__(self, comp_id, document):
         super().__init__(comp_id, document)
+        self._default_label()
+
+    def _default_label(self) -> None:
         self.set_label_offset(0, self.LABEL_Y)
 
     def boundingRect(self) -> QRectF:
@@ -605,6 +673,9 @@ class ShuntItem(ComponentItem):
 
     def __init__(self, comp_id, document):
         super().__init__(comp_id, document)
+        self._default_label()
+
+    def _default_label(self) -> None:
         self.set_label_offset(0, 24)
 
     def boundingRect(self) -> QRectF:
@@ -680,6 +751,9 @@ class SourceItem(ComponentItem):
 
     def __init__(self, comp_id, document):
         super().__init__(comp_id, document)
+        self._default_label()
+
+    def _default_label(self) -> None:
         self.set_label_offset(0, -self.R - 42)
 
     def subtitle(self) -> str:

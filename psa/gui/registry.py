@@ -180,5 +180,5 @@ def make_item(comp, document, layout: dict | None = None) -> ComponentItem:
     item.setPos(float(layout.get("x", 0)), float(layout.get("y", 0)))
     off = layout.get("label_offset")
     if off:
-        item.set_label_offset(float(off[0]), float(off[1]))
+        item.set_label_offset(float(off[0]), float(off[1]), custom=True)
     return item

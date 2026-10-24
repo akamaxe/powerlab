@@ -1080,6 +1080,25 @@ class Scale(unittest.TestCase):
         self.assertGreater(abs(res.scalars["I_f"].value), 0.0)
 
 
+class DraggableLabels(unittest.TestCase):
+    def test_dragging_a_name_moves_it_and_survives_rotation(self):
+        doc = s1_document()
+        scene = SchematicScene(doc)
+        item = scene.item_for("LIcd")
+        auto = item.label_offset()
+        start = item.label.scenePos()
+        item.label.mousePressEvent(_mouse("press", start))
+        item.label.mouseMoveEvent(_mouse("move", start + QPointF(15, 40)))
+        item.label.mouseReleaseEvent(_mouse("release", start + QPointF(15, 40)))
+        self.assertEqual(doc.project.layout["LIcd"]["label_offset"],
+                         [auto.x() + 15, auto.y() + 40])
+        item.setRotation(90)                    # automatic placement must not win
+        self.assertEqual(item.label_offset(), QPointF(auto.x() + 15, auto.y() + 40))
+        doc.undo.undo()
+        self.assertNotIn("label_offset", doc.project.layout["LIcd"])
+        self.assertEqual(item.label_offset(), auto)
+
+
 if __name__ == "__main__":
     unittest.main()
 
