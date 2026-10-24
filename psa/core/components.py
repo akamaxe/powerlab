@@ -17,6 +17,8 @@ Design rules that the rest of the package depends on:
 
 from __future__ import annotations
 
+import cmath
+import math
 from dataclasses import dataclass, fields as dc_fields
 from typing import Any, ClassVar
 
@@ -39,6 +41,14 @@ class FieldSpec:
     tooltip: str = ""
     group: str = "General"
     parametric: bool = True      # may be bound to an expression
+    #: ``(field, values)``: only shown while that field holds one of ``values``.
+    visible_if: tuple[str, tuple[Any, ...]] | None = None
+
+    def is_visible(self, obj: Any) -> bool:
+        if self.visible_if is None:
+            return True
+        field, values = self.visible_if
+        return getattr(obj, field, None) in values
 
 
 @dataclass(frozen=True)
@@ -88,8 +98,20 @@ class Bus:
 
 
 @dataclass
-class Source:
-    """External grid / slack source, optionally behind a Thevenin impedance."""
+class ExternalGrid:
+    """External grid or voltage source: a Thevenin equivalent at a bus.
+
+    ``z_mode`` says how its impedance is given:
+
+    * ``z_ohm``: directly, in ohm at the bus (0 is an ideal source);
+    * ``ik``: by the three-phase fault current ``ik_ka`` at the bus, so
+      ``|Z| = U/(sqrt(3)*Ik)``;
+    * ``sk``: by the short-circuit power ``sk_mva``, so ``|Z| = U**2/Sk``.
+
+    ``U`` is ``u_pu`` times ``un_kv`` (the bus base when empty): the pre-fault
+    voltage the fault level refers to. For ``ik`` and ``sk`` the angle of ``Z``
+    is ``acos(cos_phi)``, the lagging power factor of the fault current.
+    """
 
     id: str
     bus: str = ""
@@ -97,7 +119,12 @@ class Source:
     in_service: bool = True
     u_pu: float = 1.0
     theta_deg: float = 0.0
-    z_th_ohm: complex = 0j               # at the bus base, 0 means ideal
+    z_mode: str = "z_ohm"                # z_ohm | ik | sk
+    z_th_ohm: complex = 0j               # z_mode "z_ohm", at the bus; 0 means ideal
+    ik_ka: float = 0.0                   # z_mode "ik"
+    sk_mva: float = 0.0                  # z_mode "sk"
+    cos_phi: float = 0.1                 # of the fault current, lagging
+    un_kv: float | None = None           # None => the bus base voltage
     is_slack: bool = True
 
     TYPE: ClassVar[str] = "source"
@@ -105,17 +132,58 @@ class Source:
     BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus", "Bus", "bus", parametric=False),
-        FieldSpec("u_pu", "U", "float", "pu", minimum=0.0),
+        FieldSpec("u_pu", "U", "float", "pu", minimum=0.0,
+                  tooltip="Source voltage; with Ik or Sk also the pre-fault voltage "
+                          "the fault level refers to"),
         FieldSpec("theta_deg", "Angle", "float", "deg"),
+        FieldSpec("z_mode", "Impedance from", "choice", choices=("z_ohm", "ik", "sk"),
+                  parametric=False,
+                  tooltip="z_ohm: give Z directly. ik: three-phase fault current. "
+                          "sk: short-circuit power."),
         FieldSpec("z_th_ohm", "Z Thevenin", "complex", "ohm",
-                  tooltip="0 means an ideal voltage source. Referred to the bus base."),
+                  tooltip="0 means an ideal voltage source. Referred to the bus base.",
+                  visible_if=("z_mode", ("z_ohm",))),
+        FieldSpec("ik_ka", "Ik (three-phase)", "float", "kA", minimum=0.0,
+                  visible_if=("z_mode", ("ik",))),
+        FieldSpec("sk_mva", "Sk (three-phase)", "float", "MVA", minimum=0.0,
+                  visible_if=("z_mode", ("sk",))),
+        FieldSpec("cos_phi", "cos phi of the fault", "float", "", minimum=0.0,
+                  maximum=1.0, visible_if=("z_mode", ("ik", "sk")),
+                  tooltip="Lagging power factor of the fault current: R/|Z|"),
+        FieldSpec("un_kv", "U nominal", "float", "kV", minimum=0.0,
+                  visible_if=("z_mode", ("ik", "sk")),
+                  tooltip="Voltage the fault level is quoted at. Empty means the "
+                          "bus base."),
         FieldSpec("is_slack", "Slack", "bool", parametric=False,
                   tooltip="Fixes the voltage angle reference for the network"),
     )
 
     @property
     def is_ideal(self) -> bool:
-        return self.z_th_ohm == 0
+        return self.z_mode == "z_ohm" and self.z_th_ohm == 0
+
+    def impedance_ohm(self, u_base_kv: float) -> complex:
+        """The Thevenin impedance in ohm, whatever ``z_mode`` gives it as."""
+        if self.z_mode == "z_ohm":
+            return complex(self.z_th_ohm)
+        u_kv = self.u_pu * (self.un_kv or u_base_kv)
+        if self.z_mode == "ik":
+            if self.ik_ka <= 0:
+                raise ValueError("the three-phase fault current must be positive")
+            mag = u_kv / (math.sqrt(3.0) * self.ik_ka)
+        elif self.z_mode == "sk":
+            if self.sk_mva <= 0:
+                raise ValueError("the short-circuit power must be positive")
+            mag = u_kv * u_kv / self.sk_mva
+        else:
+            raise ValueError(f"unknown impedance mode '{self.z_mode}'")
+        if not 0.0 <= self.cos_phi <= 1.0:
+            raise ValueError("cos phi must be between 0 and 1")
+        return cmath.rect(mag, math.acos(self.cos_phi))
+
+
+#: The name the class had before it grew the fault-level modes.
+Source = ExternalGrid
 
 
 @dataclass
@@ -284,7 +352,7 @@ class Impedance:
 # --------------------------------------------------------------------------- #
 
 COMPONENT_CLASSES: tuple[type, ...] = (
-    Bus, Source, Transformer, Line, Load, Shunt, Impedance,
+    Bus, ExternalGrid, Transformer, Line, Load, Shunt, Impedance,
 )
 
 TYPE_REGISTRY: dict[str, type] = {c.TYPE: c for c in COMPONENT_CLASSES}

@@ -311,21 +311,34 @@ class ShuntModel(ElementModel):
 
 
 @element_model(Source)
-class SourceModel(ElementModel):
+class ExternalGridModel(ElementModel):
     def stamp(self, comp: Source, ctx: StampContext, out: Stamps) -> None:
         _require_positive_sequence(comp, ctx)
         bus = comp.bus
         z_base = ctx.bases.z(bus)
-        z_th_pu = complex(comp.z_th_ohm) / z_base
+        try:
+            z_ohm = comp.impedance_ohm(ctx.bases.u(bus))
+        except ValueError as exc:
+            raise ValidationError(f"{display_name(comp)}: {exc}.", [comp.id]) from None
+        z_th_pu = z_ohm / z_base
         e = comp.u_pu * complex(math.cos(math.radians(comp.theta_deg)),
                                 math.sin(math.radians(comp.theta_deg)))
         out.sources.append(SourceStamp(comp.id, bus, e, z_th_pu, comp.is_slack))
+        if comp.z_mode == "ik":
+            note = (f"Thevenin equivalent from Ik = {comp.ik_ka:g} kA, "
+                    f"cos phi = {comp.cos_phi:g}")
+        elif comp.z_mode == "sk":
+            note = (f"Thevenin equivalent from Sk = {comp.sk_mva:g} MVA, "
+                    f"cos phi = {comp.cos_phi:g}")
+        else:
+            note = "ideal voltage source" if z_th_pu == 0 else "Thevenin equivalent"
         out.trace.append(ConversionStep(
             comp_id=comp.id, name=display_name(comp), comp_type="source",
             bus_ref=bus, u_base_kv=ctx.bases.u(bus), z_base_ohm=z_base,
+            u_nominal_kv=comp.un_kv if comp.z_mode != "z_ohm" else None,
             z_pu=z_th_pu if z_th_pu != 0 else None,
-            note="ideal voltage source" if z_th_pu == 0
-                 else "Thevenin equivalent",
+            z_ohm=z_ohm if z_ohm != 0 else None,
+            note=note,
         ))
 
 

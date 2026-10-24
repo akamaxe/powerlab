@@ -96,6 +96,8 @@ class ParityWithTheV1PerUnitModel(unittest.TestCase):
                 self.assertEqual(len(pu.trace), len(snap["trace"]))
                 for got, want in zip(pu.trace, snap["trace"]):
                     for key, value in want.items():
+                        if want["comp_type"] == "source" and key == "z_ohm":
+                            continue        # added on purpose: the grid's Z in ohm
                         mine = getattr(got, key)
                         if isinstance(mine, complex) or isinstance(value, list):
                             self.assertTrue(_close(mine, _c(value)), (got.comp_id, key))
