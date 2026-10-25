@@ -189,7 +189,7 @@ def _run_loadflow(ctx: StudyContext) -> Result:
         j0 = LabeledMatrix(sol.jacobian_0, sol.row_labels, sol.col_labels, kind="ratio",
                            title="Jacobian [H N; J L] at the flat start")
         res.matrices["J0"] = j0
-        res.tables.append(matrix_table(j0))
+        res.tables.append(matrix_table(j0, "J0"))
         res.matrices["J"] = LabeledMatrix(sol.jacobian, sol.row_labels, sol.col_labels,
                                           kind="ratio", title="Jacobian at the solution")
     bus_labels = [lab.get(b, b) for b in sol.buses]

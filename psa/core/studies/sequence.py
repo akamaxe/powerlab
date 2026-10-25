@@ -118,8 +118,8 @@ def _run_unbalanced_load(ctx: StudyContext) -> Result:
         Z_s = T_INV @ Z_ph @ T
         res.matrices["Z_s"] = LabeledMatrix(Z_s, T_LABELS, T_LABELS, "impedance_pu",
                                             "Z_s = T^-1 Z_ph T [pu]")
-        res.tables.append(matrix_table(res.matrices["Z_ph"]))
-        res.tables.append(matrix_table(res.matrices["Z_s"]))
+        res.tables.append(matrix_table(res.matrices["Z_ph"], "Z_ph"))
+        res.tables.append(matrix_table(res.matrices["Z_s"], "Z_s"))
 
     i = Table(f"Load currents and voltage at bus {th.label}", ["Quantity", "pu", "SI"])
     i_base, u_ph = th.i_base_ka, th.u_base_kv / math.sqrt(3.0)

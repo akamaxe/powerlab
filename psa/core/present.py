@@ -45,10 +45,11 @@ def fmt_matrix_scaled(m) -> tuple[str, list[str]]:
     return f"1.0e{k:+03d} *", fmt_matrix(arr / 10.0 ** k, style="fix")
 
 
-def matrix_table(lm: LabeledMatrix) -> Table:
+def matrix_table(lm: LabeledMatrix, source: str = "") -> Table:
     """A labelled matrix as a table, with MATLAB's common factor in the title.
 
-    A real matrix (a Jacobian) prints its entries as real numbers.
+    A real matrix (a Jacobian) prints its entries as real numbers. ``source`` is
+    the matrix's key in :attr:`Result.matrices`, so the GUI can copy it exactly.
     """
     arr = np.asarray(lm.data)
     if not np.iscomplexobj(arr):
@@ -57,7 +58,8 @@ def matrix_table(lm: LabeledMatrix) -> Table:
     factor = f"1.0e{k:+03d} *" if k else ""
     scaled = arr / 10.0 ** k if k else arr
     fmt = (lambda c: fmt_rect(c, "fix")) if np.iscomplexobj(arr) else (lambda c: fmt_real(c, "fix"))
-    t = Table(lm.title + (f"   ({factor})" if factor else ""), [""] + list(lm.cols))
+    t = Table(lm.title + (f"   ({factor})" if factor else ""), [""] + list(lm.cols),
+              source=source)
     for label, row in zip(lm.rows, scaled):
         t.add(label, *(fmt(c) for c in row))
     if factor:

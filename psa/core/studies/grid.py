@@ -94,7 +94,7 @@ def _run_ybus(ctx: StudyContext) -> Result:
                        title=f"Y{SEQ_INDEX[seq]}, {SEQ_NAME[seq]} sequence [pu], "
                              f"{len(labels)} x {len(labels)}")
     res.matrices["Y"] = lm
-    res.tables.append(matrix_table(lm))
+    res.tables.append(matrix_table(lm, "Y"))
     res.tables.append(nodes)
     asym = float(np.max(np.abs(Y - Y.T))) if Y.size else 0.0
     chk = Table("Checks", ["Quantity", "Value"])

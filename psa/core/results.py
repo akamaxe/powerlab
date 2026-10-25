@@ -36,6 +36,8 @@ class Table:
     headers: list[str] = field(default_factory=list)
     rows: list[list[str]] = field(default_factory=list)
     note: str = ""
+    #: Key of the :attr:`Result.matrices` entry this table prints, if any.
+    source: str = ""
 
     def add(self, *cells: str) -> None:
         self.rows.append([str(c) for c in cells])
@@ -203,7 +205,7 @@ def two_port_result(tp: TwoPortResult, title: str = "S1a) Two-port matrix") -> R
                 el.add(f"    {row}")
         res.tables.append(el)
 
-    prod = Table(f"F_{li}{lj}")
+    prod = Table(f"F_{li}{lj}", source="F")
     for row in fmt_matrix(tp.f):
         prod.add(row)
     res.tables.append(prod)
