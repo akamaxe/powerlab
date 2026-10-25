@@ -839,16 +839,17 @@ def _table_block(table, matrix=None, name: str = "") -> QWidget:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             widget.setItem(r, c, item)
 
+    # As wide as its columns, so every number stays next to its header; the
+    # result page scrolls sideways when a table is wider than the panel.
     widget.resizeColumnsToContents()
-    header = widget.horizontalHeader()
-    if cols:
-        header.setSectionResizeMode(cols - 1, QHeaderView.ResizeMode.Stretch)
+    widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     height = widget.horizontalHeader().height() * (1 if table.headers else 0)
     for r in range(widget.rowCount()):
         height += widget.rowHeight(r)
-    widget.setFixedHeight(height + 6)
-    widget.setSizeAdjustPolicy(QTableWidget.SizeAdjustPolicy.AdjustToContents)
-    layout.addWidget(widget)
+    width = sum(widget.columnWidth(c) for c in range(widget.columnCount()))
+    widget.setFixedSize(width + 2 * widget.frameWidth() + 2, height + 6)
+    layout.addWidget(widget, 0, Qt.AlignmentFlag.AlignLeft)
 
     if table.note:
         note = QLabel(table.note)

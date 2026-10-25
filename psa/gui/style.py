@@ -7,6 +7,8 @@ consistent and can be restyled in one place.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QPen
 
@@ -201,3 +203,25 @@ QScrollBar::handle:hover { background: #a9b4bb; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: 0; background: none; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """
+
+
+#: Check boxes drawn by the style sheet: the global background above would
+#: otherwise leave an unchecked box almost invisible.
+_INDICATORS = """
+QCheckBox::indicator, QAbstractItemView::indicator {
+    width: 12px; height: 12px; border: 1px solid #7d8a93; border-radius: 2px;
+    background: #ffffff;
+}
+QCheckBox::indicator:hover, QAbstractItemView::indicator:hover { border-color: #1f5fa8; }
+QCheckBox::indicator:checked, QAbstractItemView::indicator:checked {
+    background: #1f5fa8; border-color: #1f5fa8; image: url(@CHECK@);
+}
+QCheckBox::indicator:disabled { background: #eef1f3; border-color: #c0c7cc; }
+QCheckBox::indicator:checked:disabled { background: #9db4cc; border-color: #9db4cc; }
+"""
+
+
+def stylesheet() -> str:
+    """The application style sheet, with the check-box icon's path filled in."""
+    check = (Path(__file__).resolve().parent / "icons" / "check.svg").as_posix()
+    return STYLESHEET + _INDICATORS.replace("@CHECK@", check)

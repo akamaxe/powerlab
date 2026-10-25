@@ -23,7 +23,7 @@ def create_app(argv: list[str] | None = None) -> QApplication:
     app.setStyle("Fusion")
     app.setApplicationName("PowerLab")
     app.setOrganizationName("PowerLab")
-    app.setStyleSheet(st.STYLESHEET)
+    app.setStyleSheet(st.stylesheet())
     return app
 
 
