@@ -1350,6 +1350,62 @@ class DataManager(unittest.TestCase):
         self.assertEqual(self.win.selected_ids(), ["LD8"])
 
 
+class DiagramColouring(unittest.TestCase):
+    def _window(self, name: str):
+        from psa.gui.mainwindow import MainWindow
+
+        win = MainWindow(NetworkDocument.open(ROOT / "examples" / name, as_copy=True))
+
+        def close():
+            with unittest.mock.patch.object(win, "_confirm_discard", return_value=True):
+                win.close()
+        self.addCleanup(close)
+        return win
+
+    def test_voltage_levels_colour_buses_elements_and_wires(self):
+        from psa.gui.colouring import LEVEL_PALETTE
+
+        win = self._window("grid_industry.psn")
+        win.set_colour_mode("level")
+        items = win.scene._items
+        hv, mv, lv, llv = (LEVEL_PALETTE[i] for i in range(4))   # 70, 40, 12, 6 kV
+        self.assertEqual(items["b1"].tint.name(), hv)
+        self.assertEqual(items["b2"].tint.name(), mv)
+        self.assertEqual(items["L23"].tint.name(), mv)
+        self.assertEqual(items["bus_c"].tint.name(), lv)
+        self.assertEqual(items["LDe"].tint.name(), llv)
+        self.assertIsNone(items["T1"].tint, "a transformer spans two levels")
+        self.assertEqual(win.scene._wires["T1:0"].tint.name(), hv)
+        self.assertTrue(win.view.legend.isVisibleTo(win.view))
+        self.assertIn("70 kV", win.view.legend.text())
+
+        win.set_colour_mode("none")
+        self.assertIsNone(items["b1"].tint)
+        self.assertIsNone(win.scene._wires["T1:0"].tint)
+        self.assertFalse(win.view.legend.isVisibleTo(win.view))
+
+    def test_new_elements_follow_the_voltage_levels(self):
+        win = self._window("grid_industry.psn")
+        win.set_colour_mode("level")
+        b7 = win.scene._items["b7"]
+        load = win.scene.place_component("load", b7.scenePos() + QPointF(0, 70))
+        self.assertEqual(win.document.network.get(load).bus, "b7")
+        self.assertEqual(win.scene._items[load].tint, b7.tint)
+
+    def test_bus_voltages_of_the_result_shown(self):
+        from psa.gui.colouring import voltage_band
+
+        win = self._window("lf_220kv.psn")
+        win.set_colour_mode("voltage")
+        self.assertIsNone(win.scene._items["b8"].tint)          # nothing run yet
+        win.run_all_studies()
+        win.results.setCurrentIndex(0)
+        self.assertEqual(win.scene._items["b8"].tint, voltage_band(0.9661)[0])
+        self.assertEqual(win.scene._items["b1"].tint, voltage_band(1.0)[0])
+        self.assertNotEqual(voltage_band(0.9661)[0], voltage_band(1.0)[0])
+        self.assertIsNone(win.scene._items["L12"].tint)
+
+
 if __name__ == "__main__":
     unittest.main()
 

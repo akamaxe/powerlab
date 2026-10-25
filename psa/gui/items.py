@@ -148,6 +148,8 @@ class ComponentItem(QGraphicsObject):
 
     #: (x, y, bus-field-name) for each terminal, in local coordinates.
     TERMINALS: tuple[tuple[float, float, str], ...] = ()
+    #: Colour replacing the ink while the diagram is coloured, else ``None``.
+    tint = None
 
     def __init__(self, comp_id: str, document):
         super().__init__()
@@ -346,7 +348,12 @@ class ComponentItem(QGraphicsObject):
     # -- painting helpers ---------------------------------------------- #
 
     def current_pen(self):
-        return st.symbol_pen(self.isSelected(), self._hover, self.is_in_service())
+        return st.symbol_pen(self.isSelected(), self._hover, self.is_in_service(), self.tint)
+
+    def set_tint(self, colour) -> None:
+        if colour != self.tint:
+            self.tint = colour
+            self.update()
 
 
 # --------------------------------------------------------------------------- #
@@ -496,15 +503,16 @@ class BusItem(ComponentItem):
         is_junction = comp is not None and comp.kind == "junction"
         if is_junction:
             painter.setPen(st.bus_pen(self.isSelected(), self._hover,
-                                      self.is_in_service(), self.highlight))
-            painter.setBrush(st.INK if self.is_in_service() else st.OUT_OF_SERVICE)
+                                      self.is_in_service(), self.highlight, self.tint))
+            painter.setBrush((self.tint or st.INK) if self.is_in_service()
+                             else st.OUT_OF_SERVICE)
             painter.drawEllipse(QPointF(0, 0), 4.5, 4.5)
             if self.highlight == "target" or self.isSelected():
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawEllipse(QPointF(0, 0), 9.0, 9.0)
             return
         painter.setPen(st.bus_pen(self.isSelected(), self._hover,
-                                  self.is_in_service(), self.highlight))
+                                  self.is_in_service(), self.highlight, self.tint))
         painter.drawLine(a, b)
 
     def attach_point(self, scene_pos: QPointF) -> QPointF:
@@ -945,6 +953,7 @@ class WireItem(QGraphicsPathItem):
         self.handles: list[WireHandle] = []
         self._edit_start: list[list[float]] | None = None
         self._in_service = True
+        self.tint = None
         self.setZValue(st.Z_WIRE)
         self.setPen(st.wire_pen())
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -984,8 +993,13 @@ class WireItem(QGraphicsPathItem):
         except KeyError:
             pass
         self._in_service = bool(comp is None or comp.in_service)
-        self.setPen(st.wire_pen(self.isSelected(), self._in_service))
+        self.setPen(st.wire_pen(self.isSelected(), self._in_service, self.tint))
         self._place_handles()
+
+    def set_tint(self, colour) -> None:
+        if colour != self.tint:
+            self.tint = colour
+            self.setPen(st.wire_pen(self.isSelected(), self._in_service, colour))
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
@@ -996,7 +1010,7 @@ class WireItem(QGraphicsPathItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            self.setPen(st.wire_pen(bool(value), self._in_service))
+            self.setPen(st.wire_pen(bool(value), self._in_service, self.tint))
             self._place_handles()
         return super().itemChange(change, value)
 

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsView,
+    QLabel,
     QMenu,
 )
 
@@ -619,6 +620,14 @@ class SchematicScene(QGraphicsScene):
     # Result overlay
     # ------------------------------------------------------------------ #
 
+    def set_tints(self, tints: dict, wires: bool = False) -> None:
+        """Colour elements by id (``{}`` restores the ink); with ``wires`` every
+        wire takes the colour of the bus it lands on."""
+        for obj_id, item in self._items.items():
+            item.set_tint(tints.get(obj_id))
+        for wire in self._wires.values():
+            wire.set_tint(tints.get(wire.bus_id) if wires else None)
+
     def clear_overlay(self) -> None:
         for badge in self._overlay:
             self.removeItem(badge)
@@ -689,6 +698,13 @@ class SchematicView(QGraphicsView):
         self._panning = False
         self._space = False
         self._pan_from = None
+        self.legend = QLabel(self)
+        self.legend.setObjectName("legend")
+        self.legend.setTextFormat(Qt.TextFormat.RichText)
+        self.legend.setStyleSheet(
+            "QLabel#legend { background: rgba(255, 255, 255, 230); border: 1px solid #c9d0d4;"
+            " border-radius: 3px; padding: 6px 8px; color: #141719; }")
+        self.legend.hide()
         self._pending_tool: str | None = None
 
     # -- zoom ---------------------------------------------------------- #
@@ -725,6 +741,26 @@ class SchematicView(QGraphicsView):
     def zoom_reset(self) -> None:
         self.resetTransform()
         self.viewport().update()
+
+    # -- legend -------------------------------------------------------- #
+
+    def set_legend(self, html: str) -> None:
+        """Show ``html`` in the top-right corner of the canvas (empty hides it)."""
+        self.legend.setText(html)
+        self.legend.setVisible(bool(html))
+        if html:
+            self.legend.adjustSize()
+            self._place_legend()
+
+    def _place_legend(self) -> None:
+        margin = 10
+        vp = self.viewport().geometry()
+        self.legend.move(vp.right() - self.legend.width() - margin, vp.top() + margin)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.legend.isVisible():
+            self._place_legend()
 
     # -- pan ----------------------------------------------------------- #
 

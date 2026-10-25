@@ -32,6 +32,7 @@ from ..core.study import STUDY_REGISTRY, default_cases, run_case, studies_by_gro
 from . import clipboard
 from . import style as st
 from .commands import SetCases, SetNetworkSettings, delete_objects
+from .colouring import legend_html, voltage_level_tints, voltage_result_tints
 from .datamanager import DataManagerPanel
 from .dialogs import BaseSettingsDialog, CaseDialog
 from .document import NetworkDocument, blank_document
@@ -67,6 +68,8 @@ class MainWindow(QMainWindow):
         self.document = document or blank_document()
         self._annotated: Result | None = None
         self._paste_count = 0
+        #: How the diagram is coloured: "none", "level" or "voltage".
+        self.colour_mode = "none"
         self.setWindowTitle("PowerLab")
         self.resize(1500, 950)
 
@@ -96,6 +99,7 @@ class MainWindow(QMainWindow):
         self.document.dirtyChanged.connect(self._update_title)
         self.document.resultsInvalidated.connect(self._on_results_stale)
         self.document.structureChanged.connect(self._update_actions)
+        self._watch_for_colouring(self.document)
         self.results.resultActivated.connect(self._on_result_activated)
         self.cases_panel.newRequested.connect(self.new_case)
         self.cases_panel.editRequested.connect(self.edit_case)
@@ -229,6 +233,19 @@ class MainWindow(QMainWindow):
             checkable=True)
         self.act_overlay.setChecked(True)
 
+        self.colour_actions = {}
+        group = QActionGroup(self)
+        for mode, text, tip in (
+                ("none", "&Nothing", "Draw every element in black"),
+                ("level", "Voltage &level", "One colour per base voltage"),
+                ("voltage", "Voltage &result",
+                 "Buses coloured by the voltage magnitude of the result shown")):
+            action = self._act(text, lambda _=False, m=mode: self.set_colour_mode(m),
+                               tip=tip, checkable=True)
+            action.setChecked(mode == self.colour_mode)
+            group.addAction(action)
+            self.colour_actions[mode] = action
+
         self.act_bases = self._act("&Base settings...", self.edit_bases,
                                    tip="S base, frequency and the reference bus")
         self.act_find = self._act("&Find element...", self.find_element,
@@ -288,6 +305,9 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_overlay)
+        colour = m.addMenu("&Colour by")
+        for action in self.colour_actions.values():
+            colour.addAction(action)
         m.addSeparator()
         for dock in (self.dock_library, self.dock_variables,
                      self.dock_properties, self.dock_cases, self.dock_results):
@@ -361,6 +381,7 @@ class MainWindow(QMainWindow):
         doc.parametersChanged.connect(self.variables.refresh)
         doc.structureChanged.connect(self.variables.refresh)
         doc.structureChanged.connect(self._update_actions)
+        self._watch_for_colouring(doc)
         doc.parametersChanged.connect(self.properties.rebind)
         doc.resultsInvalidated.connect(self.results.mark_stale)
         doc.resultsInvalidated.connect(self._on_results_stale)
@@ -379,6 +400,7 @@ class MainWindow(QMainWindow):
 
         self.variables.refresh()
         self.results.show_results([])
+        self._apply_colouring()
         self._update_title()
         self._update_actions()
         self.view.zoom_fit()
@@ -957,6 +979,8 @@ class MainWindow(QMainWindow):
         if self._annotating_study(target) is None:
             target = next((r for r in results if self._annotating_study(r)), None)
         self._show_annotations(target)
+        if self.colour_mode == "voltage":
+            self._apply_colouring()
 
         warnings = [w for res in results for w in res.warnings]
         self.status.showMessage(
@@ -985,6 +1009,42 @@ class MainWindow(QMainWindow):
         """Switching to a result tab shows that study's annotations, if it has any."""
         if self.document.results_valid and self._annotating_study(res):
             self._show_annotations(res)
+        if self.colour_mode == "voltage":
+            self._apply_colouring()
+
+    # -- colouring ------------------------------------------------------ #
+
+    def _watch_for_colouring(self, doc) -> None:
+        """Voltage levels follow the network: new elements, new ratios, new wires."""
+        for signal in (doc.structureChanged, doc.componentChanged, doc.connectivityChanged):
+            signal.connect(self._refresh_level_colouring)
+
+    def _refresh_level_colouring(self, *_) -> None:
+        if self.colour_mode == "level":
+            self._apply_colouring()
+
+    def set_colour_mode(self, mode: str) -> None:
+        self.colour_mode = mode
+        action = self.colour_actions.get(mode)
+        if action is not None and not action.isChecked():
+            action.setChecked(True)
+        self._apply_colouring()
+
+    def _apply_colouring(self) -> None:
+        if self.colour_mode == "level":
+            tints, rows = voltage_level_tints(self.document.network)
+            title = "Base voltage"
+        elif self.colour_mode == "voltage":
+            res = self.results.result_at(self.results.currentIndex())
+            tints, rows = voltage_result_tints(res)
+            title = "Bus voltage"
+            if res is not None and not tints:
+                self.status.showMessage("The result shown has no bus voltages to colour.",
+                                        5000)
+        else:
+            tints, rows, title = {}, [], ""
+        self.scene.set_tints(tints, wires=self.colour_mode == "level")
+        self.view.set_legend(legend_html(title, rows))
 
     def _toggle_overlay(self) -> None:
         self.document.project.view["overlay"] = self.act_overlay.isChecked()

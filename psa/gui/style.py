@@ -76,18 +76,20 @@ def pen(color: QColor, width: float = SYMBOL_PEN, cosmetic: bool = False,
 
 
 def symbol_pen(selected: bool = False, hovered: bool = False,
-               in_service: bool = True) -> QPen:
+               in_service: bool = True, tint: QColor | None = None) -> QPen:
+    """``tint`` replaces the ink of an in-service symbol (diagram colouring)."""
     if selected:
         return pen(SELECTION, SYMBOL_PEN + 0.8)
     if hovered:
         return pen(HOVER, SYMBOL_PEN + 0.4)
     if not in_service:
         return pen(OUT_OF_SERVICE, SYMBOL_PEN, style=Qt.PenStyle.DashLine)
-    return pen(INK, SYMBOL_PEN)
+    return pen(tint or INK, SYMBOL_PEN)
 
 
 def bus_pen(selected: bool = False, hovered: bool = False,
-            in_service: bool = True, highlight: str = "") -> QPen:
+            in_service: bool = True, highlight: str = "",
+            tint: QColor | None = None) -> QPen:
     """``highlight``: ``"target"`` (the bus a connection would land on) or
     ``"candidate"`` (any bus it could land on) while a terminal is dragged."""
     if highlight == "target":
@@ -102,15 +104,16 @@ def bus_pen(selected: bool = False, hovered: bool = False,
         return pen(HOVER, BUS_WIDTH)
     if not in_service:
         return pen(OUT_OF_SERVICE, BUS_WIDTH, style=Qt.PenStyle.DashLine)
-    return pen(INK, BUS_WIDTH)
+    return pen(tint or INK, BUS_WIDTH)
 
 
-def wire_pen(selected: bool = False, in_service: bool = True) -> QPen:
+def wire_pen(selected: bool = False, in_service: bool = True,
+             tint: QColor | None = None) -> QPen:
     if selected:
         return pen(SELECTION, 2.0, cosmetic=True)
     if not in_service:
         return pen(OUT_OF_SERVICE, 1.6, cosmetic=True, style=Qt.PenStyle.DashLine)
-    return pen(WIRE, 1.6, cosmetic=True)
+    return pen(tint or WIRE, 1.6, cosmetic=True)
 
 
 def label_font(bold: bool = True, size: int = 9) -> QFont:
