@@ -5,15 +5,16 @@ Interactive single-line diagram editor and power system analysis tool, started f
 
 You place buses, transformers, PI-model lines, loads, shunts and external grids on a canvas in
 the style of DIgSILENT PowerFactory / ETAP, and the app converts the network to per unit and
-computes what **Assignments S1 and S2** ask for: the two-port (ABCD) matrix, the equivalent
-impedance, the bus voltages, the admittance matrix, Thevenin equivalents and three-phase short
-circuits, with the results formatted the way the course requires.
+computes what **Assignments S1, S2 and S3** ask for: the two-port (ABCD) matrix, the
+equivalent impedance, the bus voltages, the admittance matrices of the three sequence networks,
+Thevenin equivalents, short circuits of every type and unbalanced loads, with the results
+formatted the way the course requires.
 
 | Assignment | Status in PowerLab |
 |---|---|
 | **S1** — two-port, equivalent Z, voltages | Complete in the GUI and in console mode, validated against the assignment statement (A = 0) and against the MATLAB reference solution (A = 80) |
 | **S2** — Y-bus, Thévenin, three-phase short circuit | Complete: `examples/s2_grid.psn` and `examples/grid_industry.psn` hold the four tasks as study cases, validated against the MATLAB reference solution (A = 80) and the assignment statement (A = 0) |
-| **S3** — sequence networks, single line-to-ground fault | Pending |
+| **S3** — sequence networks, single line-to-ground fault | Complete: cases S3a-S3e in `examples/grid_industry.psn` (S3a-S3c also in `examples/s2_grid.psn`), validated against the MATLAB reference solution (A = 80 and A = 0) |
 | **LF** — load flow | Pending |
 
 The plan for v1 (all four assignments, a PowerFactory-grade editor) is in
@@ -87,9 +88,16 @@ code 2.
 | **External grid** | Voltage source behind a Thevenin impedance, given in Ω (0 = ideal) or by its fault level: `Ik` [kA] or `Sk` [MVA] with cos φ | `U` [pu], angle [°], impedance mode, `Z_th` or `Ik`/`Sk`, cos φ, nominal `U` [kV], slack |
 | **Transformer** | Two-winding, series impedance `r + jx`, no magnetizing branch | `S_n` [MVA], `U_1n`/`U_2n` [kV], `x` and `r` [%], side Z is referred to |
 | **Line / Cable** | PI equivalent, n identical lines in parallel | `r`, `x` [Ω/km], `b_c`, `g` [S/km], length [km], number in parallel |
-| **Load** | Constant impedance at its nominal voltage | `P` [MW], cos φ, lagging/leading, nominal `U` [kV] |
-| **Shunt** | Capacitor (`Q > 0`) or reactor (`Q < 0`) | `Q` [MVAr], nominal `U` [kV] |
+| **Load** | Constant impedance at its nominal voltage | `P` [MW], cos φ, lagging/leading, nominal `U` [kV], connection Y0 / Y / Δ, `Zn` |
+| **Shunt** | Capacitor (`Q > 0`) or reactor (`Q < 0`) | `Q` [MVAr], nominal `U` [kV], connection Y0 / Y / Δ |
 | **Impedance** | Series R + jX between two buses, or to ground | `R`, `X` in Ω or in pu |
+
+**Sequence data** (the *Zero sequence* group of each element's properties): a line gives its
+zero-sequence impedance as factors of r, x, b or as per-km values, and zero-sequence studies refuse
+to run while a line has none; a transformer has a vector group (YNyn, YNd, Dyn, ...) and neutral
+impedances; loads and shunts a connection; the external grid its `Z0` (in Ω, from a single
+line-to-ground fault current `Ik1` with cos φ, or as `Z0/Z1`). The negative sequence equals the
+positive one, without source voltages; transformer phase shifts are not modelled, as in the course.
 
 Every component has a name and an *In service* checkbox: an out-of-service component is drawn
 grey and dashed, and no study takes it into account. A new component starts with sensible values
@@ -103,10 +111,15 @@ grey and dashed, and no study takes it into account. A new component starts with
 | **S1a) Two-port matrix** | F matrix of each element in cascade order, the product `F` between the two buses with the convention `[U₁; I₁] = F·[U₂; I₂]`, `det(F)` and the comparison between methods |
 | **S1b) Equivalent impedance** | `Z = U/I` looking into the network from a bus, in pu and in Ω, and the check against `(A·Z+B)/(C·Z+D)` |
 | **S1c) Bus voltages** | Solves the linear network: voltage of every bus (pu, angle, kV), flows and losses per branch, current and power of each source, voltage drop and the chain `U_a → I_a → U_e` |
-| **Admittance matrix (Y-bus)** | The Y-bus of the energized network with MATLAB's common factor, its node list and a symmetry check. Sources behind an impedance appear as an extra internal node (the S2a form), as a shunt to ground, or not at all |
+| **Admittance matrix (Y-bus)** | The Y-bus of the positive, negative or zero sequence of the energized network, with MATLAB's common factor, its node list and a symmetry check. Sources behind an impedance appear as an extra internal node (the S2a form), as a shunt to ground (the S3a form), or not at all |
+| **Sequence model** | Every element in the positive- and zero-sequence networks, with the path it gives (a Dyn transformer as a shunt on its star side, a delta load open, ...) |
 | **Bus voltages (linear network)** | The S1c solve for any network (S2d) |
-| **Thevenin equivalent** | `U_th` from the pre-fault solve and `Z_th` from the impedance matrix, in pu and SI, with `I_sc` and `S_sc`; cross-checked against Kron reduction and against the MATLAB route `Z(k,s) E / Z(s,s)` |
-| **Short circuit** | Three-phase fault through `Z_f`: fault current in pu and kA, fault power both as `U_th conj(I_f) S_base` (the course's definition) and as `√3 U_base |I_f|`, and every bus voltage and branch current during the fault |
+| **Thevenin equivalent** | `U_th` from the pre-fault solve and `Z_th,1`, `Z_th,2`, `Z_th,0` from the impedance matrices, in pu and SI, with the three-phase and line-to-ground fault currents and `S_sc`; cross-checked against Kron reduction and against the MATLAB route `Z(k,s) E / Z(s,s)` |
+| **Short circuit** | Three-phase, single line-to-ground, line-to-line or double line-to-ground fault through `Z_f` (and `Z_g`): sequence and phase currents in pu and kA, the fault power (`U_th conj(I_f) S_base`, the course's definition, and `√3 U_base |I_f|`), and every bus phase voltage and branch phase current during the fault |
+| **Unbalanced load** | A load drawing a different power on each phase (S3e: half of phase a disconnected), solved with the sequence networks; the phase voltages it causes at every bus |
+
+Faults and unbalanced loads are one solver: the condition at the bus is written as three phase
+equations and solved in symmetrical components against the sequence Thevenin equivalents.
 
 Right-click a bus for *Thevenin equivalent here* or *Three-phase short circuit here*: the study
 runs at once, without adding a case to the project.
@@ -311,7 +324,7 @@ the diagram. No GUI code has to change.
 ## Verification
 
 ```
-python -m pytest                              # 195 tests, a few seconds, the GUI runs offscreen
+python -m pytest                              # 216 tests, a few seconds, the GUI runs offscreen
 python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
@@ -325,8 +338,9 @@ python run_s1_headless.py --a-number 0        # the answer published in the assi
 | `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 71 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup |
+| `test_gui.py` | 74 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup |
 | `test_s2.py` | 10 | S2a-S2d from the example projects against the MATLAB solution, A = 80 and A = 0; the external grid from its fault level |
+| `test_s3.py` | 18 | S3a-S3e from the example projects against the MATLAB solution, A = 80 and A = 0; closed-form fault currents; zero-sequence element models |
 | `test_s2_thevenin.py` | 2 | Thévenin at bus 7 of S2 for A = 0 and A = 80 |
 
 The S1 reference values come from the MATLAB reference solution of the assignment (A = 80). The
@@ -367,8 +381,8 @@ solution, A = 80).
 | File | What it holds |
 |---|---|
 | `examples/s1_a80.psn` | Assignment S1: the factory network, cases S1a-S1c |
-| `examples/s2_grid.psn` | Assignment S2: the meshed 40 kV grid fed from 70 kV, cases S2a-S2c |
-| `examples/grid_industry.psn` | The S2 grid with the S1 industry at bus 7: S2a-S2c (industry out of service) and S2d (load LDe halved) |
+| `examples/s2_grid.psn` | Assignment S2 and S3a-S3c: the meshed 40 kV grid fed from 70 kV, with its sequence data |
+| `examples/grid_industry.psn` | The S2 grid with the S1 industry at bus 7: S2a-S2c and S3a-S3c (industry out of service), S2d (load LDe halved), S3d and S3e (half of phase a of LDe disconnected) |
 
 All of them are parametric in the variable `A`: set it to 0 to reproduce the answers printed in
 the assignment. `python tools/make_examples.py` rewrites the S2 files from their builders in
@@ -378,8 +392,7 @@ the assignment. `python tools/make_examples.py` rewrites the S2 files from their
 
 The full v1 plan is in [`docs/ROADMAP.md`](docs/ROADMAP.md). In short:
 
-**For S3:** zero-sequence models of transformers (Y0/Δ connections), loads and lines, and the
-single line-to-ground fault. **For LF:** Newton-Raphson with slack/PV/PQ buses, constant-power
+**For LF:** Newton-Raphson with slack/PV/PQ buses, constant-power
 loads and taps.
 
 **GUI:** there is no export yet (image, PDF, CSV), no table view of all elements and no

@@ -58,13 +58,22 @@ Core pipeline, in the order a study sees it:
    `NetworkModel.seq(Seq.POS)` gives the cached `SequenceModel`, whose `ybus(sources=...)`
    treats finite-impedance sources as excluded, grounded (Norton shunt) or as an internal node
    (the MATLAB S2 9x9 form). `ModelOptions(energized_only=True)` drops islands without a source.
-   Only the positive sequence exists so far. `perunit.py` is the S1 view on top: `to_per_unit`
-   returns the legacy `PuModel` (PI branches, shunts, sources, trace) and stays strict.
+   All three sequences exist: negative = positive with the sources' EMF at 0; zero sequence from
+   the elements' data (line `z0_mode`, transformer `vector_group` and `Zn` — YNyn series, YNd/Dyn
+   a shunt on the grounded-star side, else open —, load/shunt `connection`, grid `z0_mode`); a line
+   without Z0 data makes `seq(Seq.ZERO)` raise. No transformer phase shifts. `perunit.py` is the
+   S1 view on top: `to_per_unit` returns the legacy `PuModel` (PI branches, shunts, sources,
+   trace) and stays strict.
 5. `solve/`: solvers over a `SequenceModel` — `linear.solve_nodal` (pre-fault state, sources as
    boundary conditions or Norton pairs), `zbus.ZBus` (impedance-matrix columns from one scipy LU
    factorization, ideal-source buses grounded), `thevenin.thevenin_at` (with cross-checks against
-   Kron reduction and the MATLAB `Z(k,s) E / Z(s,s)` route), `faults.solve_fault` (three-phase
-   only so far). The legacy `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance,
+   Kron reduction and the MATLAB `Z(k,s) E / Z(s,s)` route). `ZBus` treats islands with no path
+   to ground in a sequence as open (infinite impedance). `shunt.py` is the one solver for faults
+   and unbalanced loads: a condition `A U_abc + B I_abc = 0` at a bus, solved in sequence order
+   (1, 2, 0) with `T = [[1,1,1],[a^2,a,1],[a,a^2,1]]` against the sequence Thevenin equivalents
+   (`SequenceNetworks`); `fault_constraints` gives `A, B` for 3ph/slg/ll/llg and
+   `phase_admittance` for Y0/Y/D loads. `faults.solve_fault` builds only the sequences a fault
+   needs. The legacy `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance,
    Thévenin) and `twoport.py`
    (S1a cascade, cross-checked against Kron reduction of the Y-bus; whatever hangs off a port
    without reaching the other one is part of the termination).
@@ -76,7 +85,8 @@ Core pipeline, in the order a study sees it:
    `OptionSpec` (kinds bus, element, elements, choice, float, int, bool, complex, str).
    `run_case(net, case, params)` lays the case options over `defaults(net)`. Calling a study
    directly, `study(net, opts, pu)`, still works. The S1 studies live in `study.py`; the others
-   in `studies/` (`grid.py`: `ybus`, `linear`, `thevenin`, `short_circuit`), imported at the end
+   in `studies/` (`grid.py`: `ybus`, `linear`, `thevenin`, `short_circuit`; `sequence.py`:
+   `seqmodel`, `unbalanced_load`), imported at the end
    of `study.py` so they register themselves. These use `build_model(..., energized_only=True)`,
    so a case that takes part of the network out of service just sees the rest.
 7. `results.py` + `present.py` + `units.py`: a `Result` holds formatted `Table`s (MATLAB
@@ -138,8 +148,9 @@ badges all follow from it.
   New assignment tests compare against these at `rtol=1e-9` (load flow `1e-8`), at A = 80 and
   A = 0. The A = 0 S3b values printed in the assignment statement contain misprints; see
   `tools/refs/README.md`.
-- `tests/test_s2.py` runs every S2 case of the example projects against the fixtures, at A = 80
-  and, by setting the project variable A, at A = 0.
+- `tests/test_s2.py` and `tests/test_s3.py` run every S2 and S3 case of the example projects
+  against the fixtures, at A = 80 and, by setting the project variable A, at A = 0;
+  `test_s3.py` also checks the closed-form 3ph/SLG/LL/LLG currents from the general solver.
 - `tests/fixtures/s1_a80_v1.psn`: a version 1 project, for the migration test.
 - `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor, and
   `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`

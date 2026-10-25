@@ -10,7 +10,7 @@
 | 3 | Study framework v2 and GUI wiring | done |
 | 4 | S2 end to end | done |
 | 5 | Editor ergonomics | done |
-| 6 | S3: sequence networks and unbalanced conditions | pending |
+| 6 | S3: sequence networks and unbalanced conditions | done |
 | 7 | Load flow (Newton–Raphson) | pending |
 | 8 | Data manager, visualization, export, headless | pending |
 | 9 | Documentation and v1 acceptance | pending |
