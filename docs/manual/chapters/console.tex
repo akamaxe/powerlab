@@ -1,0 +1,104 @@
+\chapter{Working from the command line}\label{ch:console}
+
+Two scripts in the repository's root solve projects without opening a window. They do not
+need PySide6.
+
+\section{run\_headless.py}
+
+\file{run\_headless.py} runs the study cases of any project, prints every result and can
+export what it ran:
+
+\begin{terminal}
+python run_headless.py examples/lf_220kv.psn                   # every case of the project
+python run_headless.py examples/lf_220kv.psn --case LFd        # one case (repeatable)
+python run_headless.py examples/s2_grid.psn --study thevenin   # a study with its defaults
+python run_headless.py examples/lf_220kv.psn --set A=0         # change a variable first
+python run_headless.py examples/s2_grid.psn --export s2.json   # also write a file
+python run_headless.py examples/s2_grid.psn --list             # cases and studies
+\end{terminal}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.6cm}X@{}}
+\toprule
+\sffamily\bfseries Option & \sffamily\bfseries What it does \\ \midrule
+\cli{project.psn} & The project to solve. \\
+\cli{--case ID} & Run this case of the project. Repeatable. Without \cli{--case} or
+  \cli{--study}, every case runs, or every study with its defaults if the project has no
+  cases. \\
+\cli{--study KEY} & Run this study: the project's case of the same id if there is one,
+  otherwise the study with its defaults. Repeatable. The keys are \code{model},
+  \code{s1a}, \code{s1b}, \code{s1c}, \code{ybus}, \code{linear}, \code{thevenin},
+  \code{short\_circuit}, \code{loadflow}, \code{seqmodel} and \code{unbalanced\_load}. \\
+\cli{--set NAME=VALUE} & Set a project variable before solving. Repeatable. \cli{--set A=0}
+  gives the answers printed in the assignments. \\
+\cli{--export PATH} & Also write the results to a file. The extension (\file{.txt},
+  \file{.csv}, \file{.tex}, \file{.json}) picks the format (\cref{sec:export-results}). \\
+\cli{--quiet} & Do not print the results; useful with \cli{--export}. \\
+\cli{--list} & List the project's cases (id, study, title) and the available studies,
+  and stop. \\
+\cli{--run-script} & Run the variable script the project links to. Without it, the values
+  saved in the project are used. \\
+\bottomrule
+\end{reftable}
+
+The output starts with the project's title, then the variables set and a note if a linked
+script was not run, then each result as in the \gui{Log} tab.
+
+\paragraph{Exit codes.} \code{0} when every case ran. \code{1} when at least one case
+failed: its reason is printed and the other cases still run. \code{2} when the project
+cannot be opened, a \cli{--case} names a case that does not exist, a \cli{--set} is
+malformed or its expression fails, or the export file has an unknown extension. This
+makes the runner usable in scripts and batch checks:
+
+\begin{terminal}
+python run_headless.py examples/lf_220kv.psn --case LFa --set A=0 --quiet --export lf_a0.json
+\end{terminal}
+
+\section{run\_s1\_headless.py}
+
+\file{run\_s1\_headless.py} prints the S1 report: bases, per-unit values, S1a, S1b and
+S1c. It runs on the built-in S1 network or on a project.
+
+\begin{terminal}
+python run_s1_headless.py                             # built-in S1 network, A = 80
+python run_s1_headless.py --a-number 0                # the answer published in the statement
+python run_s1_headless.py examples/s1_a80.psn         # a saved project
+python run_s1_headless.py my_network.psn --study s1b  # a single study (repeatable)
+\end{terminal}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.6cm}X@{}}
+\toprule
+\sffamily\bfseries Option & \sffamily\bfseries What it does \\ \midrule
+\cli{project.psn} & The project; without it, the built-in S1 network. \\
+\cli{--a-number N} & The A-number of the built-in network (80 by default). Ignored for a
+  project. \\
+\cli{--study KEY} & Only this study, any key. Repeatable. By default \code{model},
+  \code{s1a}, \code{s1b} and \code{s1c}. \\
+\cli{--run-script} & Run the project's linked variable script. \\
+\bottomrule
+\end{reftable}
+
+Each study uses the options of the project's case of the same id, so the ports and buses
+chosen in the window apply. It prints the network's validation messages first and
+returns exit code 2 when the project cannot be opened or the studies cannot run.
+
+\section{From Python}
+
+The engine is a plain Python package (\code{psa.core}) with no Qt in it, so a script can
+use it directly:
+
+\begin{terminal}
+from psa.core.serialize import load
+from psa.core.study import run_case
+from psa.core.export import export_results
+
+proj = load("examples/lf_220kv.psn")
+proj.params.set_var("A", "0")
+proj.apply_parameters()
+results = [run_case(proj.network, case, proj.params) for case in proj.cases]
+print(results[0].scalars["P_loss_MW"].value)       # 26.424...
+export_results(results, "lf.json")
+\end{terminal}
+
+A \code{Result} holds the formatted tables and the numbers behind them: \code{scalars},
+per-bus \code{buses}, per-element \code{elements} and labelled \code{matrices}. These are
+the same names as in the JSON export.

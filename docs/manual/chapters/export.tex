@@ -1,0 +1,63 @@
+\chapter{Exporting}\label{ch:export}
+
+\section{Results}\label{sec:export-results}
+
+\menu{File > Export results...} (\keys{\ctrl + E}) writes the results of the last run,
+every result tab, to one file. The format follows the file type chosen in the dialog, or
+the extension you type:
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{1.6cm}X@{}}
+\toprule
+\sffamily\bfseries Format & \sffamily\bfseries Extension & \sffamily\bfseries Contents \\ \midrule
+Text & \file{.txt} & Every result as on screen: title, headline, tables and warnings,
+  in \code{format short}. The same text as the \gui{Log}. \\
+CSV & \file{.csv} & Every table as a block: its title, the header row, the rows and its
+  note, then a blank line. Opens in any spreadsheet. \\
+LaTeX & \file{.tex} & A \code{\textbackslash subsection*} per result and a \code{booktabs} tabular per
+  table, with LaTeX's special characters escaped. The polar \code{<} becomes
+  $\angle$, and degrees are typeset properly. Needs \code{\textbackslash usepackage\{booktabs\}} in the
+  report's preamble. \\
+JSON & \file{.json} & The numbers behind the tables at full precision: for each result,
+  its scalars, per-bus and per-element quantities (value, kind and label), every matrix
+  with its row and column labels, and the tables. Complex numbers are written as
+  \code{\{"re": ..., "im": ...\}}. \\
+\bottomrule
+\end{reftable}
+
+\begin{tip}
+Use LaTeX for a report, and JSON when a script of your own should read the numbers,
+including the matrices that are not printed as tables, such as the Jacobian at the
+load-flow solution. Text and CSV carry the four decimals shown on screen; JSON carries
+every digit.
+\end{tip}
+
+If nothing has been run yet, \app\ says so in the status bar instead of writing an empty
+file.
+
+\section{The diagram}\label{sec:export-diagram}
+
+\menu{File > Export diagram...} (\keys{\ctrl + \shift + E}) saves the drawing:
+
+\begin{description}
+  \item[PNG] a bitmap at twice the screen scale, sharp enough to print at a column's
+    width;
+  \item[SVG] a vector drawing, for editing or for the web;
+  \item[PDF] a vector page exactly the size of the drawing, for \verb|\includegraphics| in
+    LaTeX.
+\end{description}
+
+The export contains every element plus a margin, on white, without the grid and without
+the selection highlight. The annotations of the result shown are included when they are
+on (\keys{\ctrl + R}), which makes the export a ready figure for a report. The figures of
+this manual that show diagrams were exported this way.
+
+\section{Matrices for MATLAB}
+
+\gui{Copy as MATLAB}, in the context menu of a matrix table, puts the matrix on the
+clipboard as MATLAB source with every digit (\cref{sec:copy-matlab}). The JSON export
+holds every matrix of every result.
+
+\section{From the command line}
+
+\cli{run\_headless.py --export results.json} writes the same files without opening the
+window (\cref{ch:console}).

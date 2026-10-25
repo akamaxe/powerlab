@@ -1,0 +1,100 @@
+\chapter{Introduction}\label{ch:introduction}
+
+\app\ is an interactive single-line diagram editor with a power system analysis engine
+behind it. You draw a network on a canvas, much as in DIgSILENT PowerFactory, PSS/E or
+ETAP. \app\ converts it to per unit and runs the studies a power system analysis course
+asks for, with the results printed the way the course prints them. It started from the
+KTH course \emph{EG2100 Power System Analysis}. Version~1.0 solves all four course
+assignments (S1, S2, S3 and LF) and reproduces their reference solutions digit by digit.
+
+\section{What \app\ does}
+
+\begin{description}
+  \item[Draw] buses, external grids, generators, two-winding transformers, PI-model lines
+    and cables, loads, shunt capacitors and reactors, static var compensators and raw
+    impedances. Wires route themselves at right angles. Busbars resize, labels stay
+    upright, and every edit can be undone (\cref{ch:drawing,ch:components}).
+  \item[Parametrise] any numeric field with an expression over project variables, such as
+    \code{(217 + A)/1000}. Change \code{A} and the whole network is re-evaluated
+    (\cref{ch:parameters}).
+  \item[Organise] the work in \emph{study cases}. A case is a study, its options and,
+    optionally, a variant of the network: elements taken out of service and fields
+    overridden by an expression. The drawn network is never changed (\cref{ch:cases}).
+  \item[Analyse] with eleven studies (\cref{ch:studies}):
+    \begin{itemize}
+      \item the per-unit model and the sequence model;
+      \item two-port (ABCD) matrices, equivalent impedances and linear bus voltages;
+      \item the positive-, negative- and zero-sequence admittance matrices;
+      \item Thevenin equivalents in all three sequences;
+      \item three-phase, single line-to-ground, line-to-line and double line-to-ground
+        faults through fault and ground impedances;
+      \item unbalanced loads;
+      \item the Newton--Raphson load flow, with its iteration log and Jacobian.
+    \end{itemize}
+  \item[Read] each result in its own tab: a headline, warnings and tables formatted like
+    MATLAB's \code{format short}. Annotate the diagram with any result and colour it by
+    voltage level or bus voltage (\cref{ch:results}).
+  \item[Edit in bulk] every element of a type in the data manager, a spreadsheet-like
+    table (\cref{ch:data-manager}).
+  \item[Export] results as text, CSV, LaTeX tables or JSON, the diagram as PNG, SVG or
+    PDF, and matrices as MATLAB literals that keep every digit (\cref{ch:export}).
+  \item[Automate] from a terminal with \file{run\_headless.py}, which runs a project's
+    cases, sets variables and exports what it ran (\cref{ch:console}).
+\end{description}
+
+\section{Principles}
+
+Four ideas run through the program, and they explain most of its behaviour.
+
+\begin{description}
+  \item[Glass box.] Every number can be traced. The per-unit table shows each component's
+    conversion with its base factor. The admittance, impedance and Jacobian matrices are
+    printed with row and column labels, and the load flow logs every iteration.
+  \item[Verified.] Each study checks itself by a second, independent method. The Thevenin
+    impedance is computed from the impedance matrix and again by Kron reduction. The
+    two-port matrix comes from the element cascade and from the Y-bus. The load flow
+    closes the power balance. The cross-check residuals are part of the results.
+  \item[Parametric.] Variables, expressions and study cases let one project hold every
+    variant of a problem, and re-evaluate it when a parameter changes.
+  \item[Course-grade presentation.] Impedance and complex power are printed in rectangular
+    form, voltage and current in polar form with the angle in degrees, and matrices with
+    MATLAB's common factor (\code{1.0e+02 *}).
+\end{description}
+
+\section{About this manual}
+
+\Cref{ch:getting-started} gets you from installation to a first solved network in a few
+minutes. \Cref{ch:window,ch:drawing} explain the window and the editor, and
+\cref{ch:components} is the reference for every component and field. Then come per-unit
+bases (\cref{ch:bases}), parametric variables (\cref{ch:parameters}) and study cases
+(\cref{ch:cases}). \Cref{ch:studies} explains each study: what it computes, its options
+and its output. \Cref{ch:results,ch:data-manager,ch:export,ch:console} cover reading,
+editing in bulk, exporting and the command line. \Cref{ch:assignments} walks through the
+four EG2100 assignments task by task, \cref{ch:files} describes the project file, and
+\cref{ch:troubleshooting} lists the messages you may meet and what to do about them. The
+appendices collect the model equations, the keyboard shortcuts and how the program is
+verified.
+
+Conventions used in this manual:
+
+\begin{itemize}
+  \item Labels on the screen are set like \gui{Properties}. Menu paths look like
+    \menu{File > Export results...}, and keys like \keys{\ctrl + S}.
+  \item Field names, option names and values are set like \code{p\_mw} or
+    \code{constant\_power}. These are the names that bindings, overrides and the project
+    file use.
+  \item File names look like \file{examples/lf\_220kv.psn}, and commands typed in a
+    terminal like \cli{python run\_gui.py}.
+  \item The reference tables of \cref{ch:components,ch:studies} are generated from the
+    program's own field definitions, so they always match the version this manual
+    describes.
+\end{itemize}
+
+\section{Scope of version 1.0}
+
+\app~1.0 models the balanced three-phase network in per unit, with symmetrical components
+for unbalanced conditions. It does not yet model breakers and switches as components,
+three-winding transformers, off-nominal taps or phase shifters, transformer phase shifts
+in the sequence networks, IEC~60909 short circuits (voltage factors), a distributed slack,
+or dynamics. \Cref{sec:limitations} lists the limitations, and \file{docs/ROADMAP.md} in
+the repository lists what comes next.

@@ -1,0 +1,153 @@
+\chapter{Troubleshooting}\label{ch:troubleshooting}
+
+\app\ explains a problem in a message rather than with a traceback, and names the
+elements involved. This chapter lists the messages you are most likely to meet, grouped
+by when they appear, with what to do about each one.
+
+\section{Validation: before any study runs}
+
+These are checked on every run. An \emph{error} stops the run, and a \emph{warning} lets
+it go on.
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{6.2cm}X@{}}
+\toprule
+\sffamily\bfseries Message & \sffamily\bfseries What to do \\ \midrule
+\emph{No base reference bus is set.} & \menu{Network > Base settings...}: pick the bus
+  where you know the base voltage, and give that voltage. \\
+\emph{The base voltage at the reference bus must be positive.} & The same dialog: set
+  \gui{Base voltage there}. \\
+\emph{X is not connected to a bus / at both ends, so the studies ignore it.}
+  (warning) & Wire the terminal (\cref{sec:connecting}), or delete the element. Every
+  result repeats this warning while it lasts. \\
+\emph{X connects bus 'a' to itself.} & Reconnect one end of the branch to another bus. \\
+\emph{X: rated voltages must be positive. / rated power must be positive.} & Fill in the
+  transformer's ratings. \\
+\emph{X has zero impedance.} (warning; an error when a study converts it) & Give the
+  transformer, line or impedance a non-zero $r$ or $x$. A zero impedance is a short
+  circuit between two buses: merge them instead. \\
+\emph{X: cos phi must be in (0, 1].} & Correct the load's power factor, or give it as
+  $P$ and $Q$. \\
+\emph{X: the voltage setpoint must be positive. / Q min is above Q max.} & Correct the
+  generator's or SVC's setpoint or limits. \\
+\emph{The network has N separate islands.} (warning) & Usually intended, for example a
+  case that disconnects part of the network. The network studies keep the islands that
+  contain a source. \\
+\bottomrule
+\end{reftable}
+
+\section{Bases}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{6.2cm}X@{}}
+\toprule
+\sffamily\bfseries Message & \sffamily\bfseries What to do \\ \midrule
+\emph{Bus 'x' already has U\_base = 12 kV but is also reached with 12.6 kV through 'T3'.
+  Check the transformer ratios around this loop.} & The rated ratios around a loop do not
+  multiply to one. Correct a ratio, or pin the base you want on one bus
+  (\cref{ch:bases}). \\
+\emph{Bus 'x' cannot be reached from the base reference bus, so it has no per-unit base.}
+  & Connect the bus to the rest of the network, pin its base, or take it out of
+  service. \\
+\emph{X spans a change of voltage base (40 kV vs 12 kV). A line cannot change the base;
+  use a transformer.} & A line joins two zones. Use a transformer between them, or
+  correct the bases. \\
+\bottomrule
+\end{reftable}
+
+\section{Studies}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{6.2cm}X@{}}
+\toprule
+\sffamily\bfseries Message & \sffamily\bfseries What to do \\ \midrule
+\emph{There is no source in the network, so the bus voltages are not defined. Add an
+  external grid.} & The linear, Thevenin, fault and unbalanced-load studies need an
+  external grid. A generator only acts in the load flow. \\
+\emph{X has no zero-sequence data. Set 'Z0 data' in its Zero sequence properties.} &
+  Give the line its zero-sequence data, as factors or per-km values. The data manager's
+  \gui{Line / Cable} tab sets it for many lines at once. \\
+\emph{Bus 'x' holds an ideal source, so its impedance to ground is zero by construction.
+  Give the source a finite impedance.} & Give the external grid an impedance (\gui{Z
+  Thevenin}, or a fault level), or study another bus. \\
+\emph{Bus 'x' is not energized in this case.} & The case takes out of service the path
+  from the sources to that bus. Check its \gui{Network variant}. \\
+\emph{The condition at bus 'x' cannot be solved: it short-circuits an ideal source or
+  leaves the currents undetermined.} & A fault at, or next to, an ideal source. Give the
+  source an impedance. \\
+\emph{The two ports must be different buses.} (S1a) & Choose two different port buses. \\
+\emph{Nothing is connected to bus 'x', so its equivalent impedance is infinite.} (S1b) &
+  Choose a bus with something connected, or connect it. \\
+\emph{The network cannot be solved: some buses are floating (no path to ground and no
+  source).} & A part of the network has no shunt and no source: add the missing
+  connection, or take the floating part out of service. \\
+\bottomrule
+\end{reftable}
+
+\section{Load flow}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{6.2cm}X@{}}
+\toprule
+\sffamily\bfseries Message & \sffamily\bfseries What to do \\ \midrule
+\emph{The island with buses \dots\ has no slack bus: connect an external grid or set a
+  generator's control to slack.} & Every island needs one slack bus. \\
+\emph{The island with buses \dots\ has 2 slack buses; a load flow needs exactly one per
+  island.} & Set all but one to \code{pv}, or clear \gui{Slack} on extra external
+  grids. \\
+\emph{Conflicting voltage setpoints at bus x: G7 and G7b ask for different values.} &
+  Give every voltage-controlling device on a bus the same \gui{U set}. \\
+\emph{The load flow did not converge.} (warning) & Read the iteration log: a mismatch
+  that grows points at the bus named in the \gui{at bus} column. Typical causes are a load
+  beyond what the network can carry, a voltage setpoint far from 1~pu, or wrong units,
+  such as kW typed as MW. Raise \gui{Maximum iterations} only when the mismatch was still
+  falling. \\
+\emph{Bus x reached its max reactive limit and becomes a PQ bus.} (warning, with
+  \gui{Enforce reactive limits}) & Information: the bus can no longer hold its voltage.
+  Its voltage is now a result. \\
+\bottomrule
+\end{reftable}
+
+\section{Study cases}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{6.2cm}X@{}}
+\toprule
+\sffamily\bfseries Message & \sffamily\bfseries What to do \\ \midrule
+\emph{Override 'x': write it as COMPONENT\_ID.field, e.g. LD4.p\_mw.} & The dialog refuses
+  an override whose element or field does not exist. Use the element's id, not its name,
+  and a field name from \cref{ch:components}. \\
+\emph{Case 'c': override 'x' names something that does not exist, so it is ignored.}
+  (warning) & An element the case refers to was deleted or renamed. Edit the case. \\
+\emph{Unknown name 'B'. Define it as a variable or load it from your script.} & An
+  expression uses a variable that does not exist. Add it in the \gui{Variables}
+  panel. \\
+\bottomrule
+\end{reftable}
+
+\section{Installation and display}
+
+\begin{description}
+  \item[Qt fails to load] with \emph{``the specified procedure could not be found''}. On
+    Windows with Anaconda, Anaconda's ICU library shadows the one Qt expects. Start
+    \app\ with \file{run\_gui.py}, which imports \code{psa.gui} first; in your own
+    scripts, import \code{psa.gui} before PySide6.
+  \item[The window layout looks wrong] Panels can be dragged back into place, or shown
+    again from \gui{View}. To return to the default layout, close \app\ and delete the
+    \code{windowState} value under \file{HKCU\textbackslash Software\textbackslash
+    PowerLab\textbackslash PowerLab} in the registry.
+  \item[The results do not change after an edit] Results are not recomputed by
+    themselves. When the tabs carry an asterisk, press \keys{F5}.
+  \item[A pasted element is unconnected] Its bus was not copied with it
+    (\cref{sec:clipboard}). Wire it, or copy the bus too.
+\end{description}
+
+\section{Limitations of version 1.0}\label{sec:limitations}
+
+\begin{itemize}
+  \item One diagram page per project. No breakers or switches as components (take
+    elements out of service instead). No three-winding transformers.
+  \item Transformer taps are stored but not modelled (an off-nominal tap only gives a
+    warning), and there are no phase shifters. Phase shifts of vector groups are not
+    modelled in the sequence networks.
+  \item Short circuits are computed from the linear pre-fault state, as in the course,
+    without the voltage factors of IEC~60909.
+  \item The load flow has one slack per island (no distributed slack), and a PU bus that
+    reaches a reactive limit stays PQ (no switching back).
+  \item The data manager edits one cell at a time.
+\end{itemize}

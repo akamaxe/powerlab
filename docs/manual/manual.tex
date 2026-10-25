@@ -1,0 +1,235 @@
+% PowerLab user manual.
+% Build: python tools/make_manual.py --pdf   (or: latexmk -pdf -outdir=build manual.tex)
+% The tables in generated/ and the screenshots in figures/ come from
+% tools/make_manual.py; do not edit them by hand.
+\documentclass[11pt, a4paper, parskip=half, toc=bibliographynumbered, open=any,
+               headings=standardclasses, numbers=noenddot]{scrreprt}
+
+% --------------------------------------------------------------------------
+% Fonts and language
+% --------------------------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{libertinus}
+\usepackage[scaled=0.92]{inconsolata}
+\usepackage{microtype}
+
+% --------------------------------------------------------------------------
+% Layout
+% --------------------------------------------------------------------------
+\usepackage[a4paper, top=2.6cm, bottom=2.8cm, left=2.5cm, right=2.5cm,
+            headheight=15pt]{geometry}
+\usepackage[automark, headsepline]{scrlayer-scrpage}
+\pagestyle{scrheadings}
+\clearpairofpagestyles
+\ihead{\small\headmark}
+\ohead{\small PowerLab 1.0 User Manual}
+\cfoot*{\small\pagemark}
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+
+% --------------------------------------------------------------------------
+% Packages
+% --------------------------------------------------------------------------
+\usepackage{amsmath, amssymb, mathtools}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{xltabular}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{needspace}
+\usepackage{tikz}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage[os=win]{menukeys}
+\usepackage{siunitx}
+\sisetup{group-separator={,}, group-minimum-digits=4}
+\usepackage[hidelinks, pdfusetitle]{hyperref}
+\usepackage[capitalise, noabbrev]{cleveref}
+
+% --------------------------------------------------------------------------
+% Colours (the application's palette)
+% --------------------------------------------------------------------------
+\definecolor{plblue}{HTML}{1F5FA8}
+\definecolor{plink}{HTML}{141719}
+\definecolor{plgrey}{HTML}{5B666E}
+\definecolor{plpaper}{HTML}{F4F6F7}
+\definecolor{plline}{HTML}{CFD6DB}
+\definecolor{plgreen}{HTML}{1E7A4E}
+\definecolor{plamber}{HTML}{B9770E}
+\definecolor{plred}{HTML}{B42318}
+
+\addtokomafont{disposition}{\color{plblue}}
+\addtokomafont{chapter}{\Huge}
+\setkomafont{captionlabel}{\sffamily\bfseries\small}
+\setkomafont{caption}{\small}
+\captionsetup{margin=10pt}
+\hypersetup{colorlinks=true, linkcolor=plblue, urlcolor=plblue, citecolor=plblue}
+
+\setlist{itemsep=2pt, topsep=4pt}
+\setlist[description]{font=\sffamily\bfseries\color{plink}, leftmargin=1.5em}
+
+% --------------------------------------------------------------------------
+% Markup for the manual
+% --------------------------------------------------------------------------
+\newcommand{\app}{PowerLab}
+\newcommand{\gui}[1]{\textsf{\textbf{#1}}}            % a label on the screen
+\newcommand{\code}[1]{\texttt{#1}}                    % a value, field or option name
+\newcommand{\file}[1]{\texttt{#1}}                    % a file or folder
+\newcommand{\cli}[1]{\texttt{#1}}                     % something typed in a terminal
+\newcommand{\pu}{\,\mathrm{pu}}
+\renewcommand{\Re}{\operatorname{Re}}
+\renewcommand{\Im}{\operatorname{Im}}
+\newcommand{\conj}[1]{{#1}^{*}}
+\newcommand{\figwidth}{\linewidth}
+
+\renewmenumacro{\menu}[>]{roundedmenus}
+\renewmenumacro{\keys}[+]{shadowedroundedkeys}
+
+\tcbuselibrary{skins, breakable}
+\newtcolorbox{tip}{enhanced, breakable, colback=plblue!5, colframe=plblue!55,
+  boxrule=0.5pt, arc=2pt, left=8pt, right=8pt, top=5pt, bottom=5pt,
+  fonttitle=\sffamily\bfseries\small, title=Tip, coltitle=white}
+\newtcolorbox{note}{enhanced, breakable, colback=plpaper, colframe=plline!80!black,
+  boxrule=0.5pt, arc=2pt, left=8pt, right=8pt, top=5pt, bottom=5pt,
+  fonttitle=\sffamily\bfseries\small, title=Note, coltitle=white,
+  colbacktitle=plgrey}
+\newtcolorbox{caution}{enhanced, breakable, colback=plred!4, colframe=plred!60,
+  boxrule=0.5pt, arc=2pt, left=8pt, right=8pt, top=5pt, bottom=5pt,
+  fonttitle=\sffamily\bfseries\small, title=Caution, coltitle=white}
+\tcbuselibrary{listings}
+\newtcblisting{terminal}{enhanced, breakable, listing only, colback=plink!3,
+  colframe=plink!25, boxrule=0.4pt, arc=2pt, left=6pt, right=6pt, top=1pt, bottom=1pt,
+  listing options={basicstyle=\ttfamily\small, columns=fullflexible, keepspaces=true,
+    breaklines=true, breakindent=2em, upquote=true, showstringspaces=false}}
+
+% A step-by-step procedure
+\newlist{steps}{enumerate}{1}
+\setlist[steps]{label=\textsf{\textbf{\arabic*.}}, leftmargin=2em, itemsep=3pt}
+
+% A screenshot with a thin frame
+\newcommand{\shot}[2][\linewidth]{%
+  \begingroup\setlength{\fboxsep}{0pt}\setlength{\fboxrule}{0.4pt}%
+  \fcolorbox{plline}{white}{\includegraphics[width=\dimexpr#1-2\fboxrule\relax]{figures/#2}}%
+  \endgroup}
+
+% Numbered callout on the window overview (positions from tools/make_manual.py)
+\newcommand{\windowcallout}[3]{%
+  \node[circle, fill=plblue, text=white, font=\sffamily\bfseries\small,
+        inner sep=1.6pt, minimum size=15pt, draw=white, line width=0.8pt]
+        at (#1, #2) {#3};}
+
+% The same numbers in running text
+\DeclareRobustCommand*{\calloutnum}[1]{\tikz[baseline=(n.base)]\node[circle, fill=plblue,
+  text=white, font=\sffamily\bfseries\scriptsize, inner sep=1pt, minimum size=12pt](n){#1};}
+
+% Generated reference tables
+\newenvironment{fieldtable}{%
+  \small\renewcommand{\arraystretch}{1.25}%
+  \xltabular{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.3cm}%
+                            >{\raggedright\arraybackslash}p{1.25cm}%
+                            >{\raggedright\arraybackslash}p{2.35cm}%
+                            >{\raggedright\arraybackslash}X@{}}
+  \toprule
+  \sffamily\bfseries Field & \sffamily\bfseries Unit & \sffamily\bfseries Default
+    & \sffamily\bfseries Meaning \\ \midrule \endfirsthead
+  \toprule
+  \sffamily\bfseries Field & \sffamily\bfseries Unit & \sffamily\bfseries Default
+    & \sffamily\bfseries Meaning \\ \midrule \endhead
+  \bottomrule \endfoot}%
+  {\endxltabular}
+\newcommand{\fieldgroup}[1]{%
+  \multicolumn{4}{@{}l}{\sffamily\bfseries\color{plblue}\footnotesize\MakeUppercase{#1}} \\}
+
+\newenvironment{optiontable}{%
+  \small\renewcommand{\arraystretch}{1.25}%
+  \xltabular{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.2cm}%
+                            >{\raggedright\arraybackslash}p{1.9cm}%
+                            >{\raggedright\arraybackslash}X@{}}
+  \toprule
+  \sffamily\bfseries Option & \sffamily\bfseries Kind & \sffamily\bfseries Meaning
+    \\ \midrule \endfirsthead
+  \toprule
+  \sffamily\bfseries Option & \sffamily\bfseries Kind & \sffamily\bfseries Meaning
+    \\ \midrule \endhead
+  \bottomrule \endfoot}%
+  {\endxltabular}
+
+% A table the manual writes by hand
+\newenvironment{reftable}[1]{%
+  \small\renewcommand{\arraystretch}{1.2}%
+  \xltabular{\linewidth}{#1}}{\endxltabular}
+
+% Component heading with its palette icon
+\newcommand{\componentsection}[3]{%
+  \section[#1]{\raisebox{-0.28\height}{\includegraphics[height=1.35em]{figures/icon-#2}}%
+    \hspace{0.45em}#1}\label{sec:component-#2}%
+  \noindent\textit{#3}\par}
+
+\title{\app\ 1.0\\[0.3em]\Large User Manual}
+\author{}
+\date{}
+
+\begin{document}
+
+% --------------------------------------------------------------------------
+% Title page
+% --------------------------------------------------------------------------
+\begin{titlepage}
+  \newgeometry{top=3cm, bottom=2.5cm, left=2.5cm, right=2.5cm}
+  \color{plink}
+  {\sffamily\bfseries\color{plblue}\fontsize{42}{46}\selectfont \app\par}
+  \vspace{0.4cm}
+  {\sffamily\Large Interactive single-line diagrams and power system analysis\par}
+  \vspace{0.25cm}
+  {\sffamily\large\color{plgrey} User Manual\quad$\cdot$\quad Version 1.0.0\par}
+  \vspace{1.4cm}
+  \noindent\shot[0.97\linewidth]{diagram-lf.png}
+  \par\vspace{0.3cm}
+  {\small\color{plgrey}\sffamily The Newton--Raphson load flow of the EG2100 Assignment LF
+  network, as \app\ annotates and exports it.\par}
+  \vfill
+  \begin{minipage}[t]{0.58\linewidth}\small\sffamily\color{plgrey}
+    \app\ grew out of the course EG2100 Power System Analysis (KTH). It draws a
+    network on a canvas and solves, in per unit and with every number traceable:
+    two-port matrices, equivalent impedances, bus voltages, the admittance matrices
+    of the three sequence networks, Thevenin equivalents, short circuits of every
+    type, unbalanced loads and the Newton--Raphson load flow.
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.38\linewidth}\raggedleft\small\sffamily\color{plgrey}
+    \href{https://github.com/akamaxe/powerlab}{github.com/akamaxe/powerlab}\\[0.3em]
+    \today
+  \end{minipage}
+  \restoregeometry
+\end{titlepage}
+
+\tableofcontents
+
+\input{chapters/introduction}
+\input{chapters/getting-started}
+\input{chapters/window}
+\input{chapters/drawing}
+\input{chapters/components}
+\input{chapters/bases}
+\input{chapters/parameters}
+\input{chapters/cases}
+\input{chapters/studies}
+\input{chapters/results}
+\input{chapters/data-manager}
+\input{chapters/export}
+\input{chapters/console}
+\input{chapters/assignments}
+\input{chapters/files}
+\input{chapters/troubleshooting}
+
+\appendix
+\input{chapters/modelling}
+\input{chapters/shortcuts}
+\input{chapters/verification}
+
+\end{document}

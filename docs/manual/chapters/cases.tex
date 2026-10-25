@@ -1,0 +1,150 @@
+\chapter{Study cases}\label{ch:cases}
+
+A \emph{study case} is one question asked of the network:
+
+\begin{itemize}
+  \item a \textbf{study}, such as the Thevenin equivalent or the load flow;
+  \item its \textbf{options}, such as the bus to look at or the fault type;
+  \item optionally, a \textbf{network variant}: elements taken \emph{out of service} and
+    fields \emph{overridden} by expressions.
+\end{itemize}
+
+Cases are saved with the project, so one project holds every question about a network
+side by side: ``industry disconnected'', ``load at 50\,\%'', ``+10\,\% load at bus 4''.
+The variant is applied to a copy of the network when the case runs. The network you drew
+never changes.
+
+\section{The Study cases panel}
+
+\begin{minipage}[t]{0.5\linewidth}
+The panel lists the project's cases in the order \keys{F5} runs them. A case with a
+variant says so after its title, for example \emph{[1 override(s)]} or \emph{[1 out of
+service]}. Hover a case to see its id and study.
+
+\begin{description}
+  \item[New...] opens a menu of every study, grouped as in the \gui{Calculate} menu.
+    Pick one to create a case and edit it.
+  \item[Edit...] edits the selected case. Double-clicking a case does the same.
+  \item[Duplicate] inserts a copy below it, with a new id and \emph{(copy)} added to its
+    title.
+  \item[Delete] removes it.
+  \item[Run selected] runs the selected cases. Hold \keys{\ctrl} or \keys{\shift} to
+    select several.
+  \item[Run all (F5)] runs every case.
+\end{description}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.45\linewidth}\vspace{0pt}
+  \centering\shot[0.97\linewidth]{panel-cases.png}
+\end{minipage}
+
+Every change to the list (new, edit, duplicate, delete) is undoable. A project without
+cases is valid. \keys{F5} then runs every study once with its default options, which is
+a quick way to see everything a new network gives.
+
+\section{The case dialog}
+
+The dialog shows the study's description, plus a note for studies that need one, and two
+tabs.
+
+\subsection{Options}
+
+\begin{minipage}[t]{0.5\linewidth}
+\gui{Case title} names the case in the panel and in its result tab. Left empty, the
+study's title stands in.
+
+The other rows are the study's options, generated from its definition and described for
+each study in \cref{ch:studies}. Bus options list the network's buses. Element options
+list the elements of the right type. Choice options offer their values. Options that only
+apply in some situations appear when they do: the ground impedance of a fault, for
+instance, appears for a double line-to-ground fault only.
+
+Some options depend on others. In S1a, the list of shunts that may be included at the
+ports changes with the port buses chosen (\cref{sec:study-s1a}).
+\end{minipage}\hfill
+\begin{minipage}[t]{0.45\linewidth}\vspace{0pt}
+  \centering\shot[0.97\linewidth]{dialog-case-options.png}
+\end{minipage}
+
+\subsection{Network variant}\label{sec:variant}
+
+\begin{minipage}[t]{0.5\linewidth}
+\textbf{Out of service.} Every bus and component is listed with a check box. A checked
+element is out of service in this case only. Assignment S2 uses this to study the grid
+with the S1 industry disconnected (TI1 out of service in \file{grid\_industry.psn}).
+
+\textbf{Overrides.} Each row sets a field, written \code{COMPONENT\_ID.field} (for example
+\code{LD4.p\_mw}), to an expression. The expression may use the project variables and
+\code{value}, the field's current value:
+
+\begin{itemize}
+  \item \code{1.1*value} raises the field by 10\,\% (Assignment LFd);
+  \item \code{0.5*value} halves it (Assignment S2d);
+  \item \code{A/1000} sets it from a variable.
+\end{itemize}
+
+\gui{Add override} adds a row, and \gui{Remove} deletes the selected rows. Field names
+are the ones in the reference tables of \cref{ch:components}, and in the data manager's
+column tooltips.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.45\linewidth}\vspace{0pt}
+  \centering\shot[0.97\linewidth]{dialog-case-variant.png}
+\end{minipage}
+
+When you press \gui{OK}, \app\ checks every override: the component must exist, the field
+must be one of its fields, and the expression must evaluate. A mistake is shown in red
+under the tabs and the dialog stays open. The tab's title counts the variant's entries,
+for example \gui{Network variant (1)}.
+
+\begin{note}
+Overrides are applied in the order shown, on a copy of the network taken after the
+project's own bindings were evaluated. When a later edit deletes or renames an element
+that a case refers to, the case runs anyway and its result starts with a warning naming
+the stale entry.
+\end{note}
+
+\section{Running cases}
+
+Cases run in three ways:
+
+\begin{itemize}
+  \item \keys{F5}, \menu{Calculate > Run all cases} or \gui{Run all (F5)}: every case of
+    the project, in order;
+  \item \gui{Run selected}: the selected cases;
+  \item a study from the \gui{Calculate} menu, which runs that study's own case
+    (\cref{sec:own-case}), or a bus's context menu, which runs a Thevenin equivalent or a
+    three-phase fault at that bus without saving a case.
+\end{itemize}
+
+Before running, \app\ validates the network. An error, such as a missing base reference
+bus or a branch that joins a bus to itself, stops the run with a list of what to fix
+(\cref{ch:troubleshooting}). A warning, such as an unconnected component, does not stop
+it. Each case then gets a result tab. A case that cannot run (S1a with ports that are not
+connected, a Thevenin equivalent in a network without a source) gets a tab with the
+reason, and the other cases are still shown. Only when every case fails does \app\ show
+the error in a message box instead.
+
+\section{A study's own case}\label{sec:own-case}
+
+Choosing a study from the \gui{Calculate} menu does not run it blindly. It opens the
+dialog of the study's \emph{own case}, the case whose id is the study's key (\code{thevenin},
+\code{loadflow}\dots), creating it the first time with the study's defaults. Accept the
+dialog and the case is saved in the project and run. The next time you choose the study,
+the dialog opens with the options you left. These cases appear in the \gui{Study cases}
+panel like any other, so \keys{F5} runs them too. Studies without options (the per-unit
+model and the sequence model) run straight away.
+
+\section{Default options}
+
+A study's options start from defaults chosen for the network at hand:
+
+\begin{itemize}
+  \item the bus options of the Thevenin and short-circuit studies default to the base
+    reference bus, unless an ideal source sits there, in which case the bus furthest from
+    it is used;
+  \item S1a's ports default to the reference bus and the bus furthest from it;
+  \item the linear voltages report the bus furthest from the reference bus;
+  \item the unbalanced load defaults to the last load of the network, with its phase
+    factors at 1, and reports the voltages at its own bus.
+\end{itemize}
+
+An option left empty in a case falls back to its default when the case runs.

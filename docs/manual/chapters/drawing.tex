@@ -1,0 +1,253 @@
+\chapter{Drawing a network}\label{ch:drawing}
+
+A network in \app\ is a set of buses with components connected to them. A component's
+connections are its \emph{terminals}: one for a load, shunt, generator, SVC or external
+grid, two for a transformer, line or impedance. What a terminal is connected to is stored
+in the component itself (its \code{bus}, \code{bus\_hv}, \code{bus\_from}\dots\ fields),
+so the drawing can never disagree with the electrical model. The wires on the canvas only
+show those connections.
+
+\section{Placing components}\label{sec:placing}
+
+\begin{minipage}[t]{0.6\linewidth}
+The \gui{Library} lists every component type (\cref{ch:components}). There are two ways
+to place one:
+
+\begin{itemize}
+  \item \textbf{Click and click.} Click the entry in the library, then click the canvas
+    where the component should go. Hold \keys{\shift} while clicking the canvas to place
+    several in a row. A right-click or \keys{Esc} drops the tool.
+  \item \textbf{Drag and drop.} Drag the entry from the library onto the canvas.
+\end{itemize}
+
+Positions snap to a 10-unit grid. A new component gets an id from its type (\code{T1},
+\code{LI2}, \code{LD3}, \dots) and sensible values to start with: a 10~MVA, 40/12~kV,
+7\,\% transformer, a 1~km cable with $0.16+j0.08\,\Omega/\text{km}$, a 1~MW load at
+cos~$\varphi=0.9$ lagging, a 2~MVAr capacitor, a 100~MW PV generator at 1~pu. New buses
+are named with letters: \code{a}, \code{b}, \code{c}, \dots
+\end{minipage}\hfill
+\begin{minipage}[t]{0.34\linewidth}\vspace{0pt}
+  \centering\shot[0.9\linewidth]{panel-library.png}
+\end{minipage}
+
+\subsection{Automatic connection}
+
+A component connects itself when it is dropped near buses. Each terminal attaches to the
+nearest bus within reach (about 95 scene units), and a bus already taken by another
+terminal of the same component is skipped. So:
+
+\begin{itemize}
+  \item a transformer, line or impedance dropped \emph{between} two buses connects to both;
+  \item a load, shunt, generator or SVC dropped just below a bus hangs from it;
+  \item a component dropped in open space stays unconnected, and you wire it by hand.
+\end{itemize}
+
+\section{Connecting by hand}\label{sec:connecting}
+
+Every terminal is drawn as a small circle on its symbol. To connect it:
+
+\begin{steps}
+  \item Press the mouse on the terminal and drag. While you drag, every bus the terminal
+    could land on is outlined faintly, and the one under the cursor is outlined strongly.
+  \item Release on a bus to connect the terminal to it. Release on empty canvas instead,
+    and \app\ creates a new bus there and connects to it, in one undo step.
+\end{steps}
+
+\keys{Esc} or a right-click during the drag cancels it. To disconnect a terminal, set its
+bus field to empty in \gui{Properties} or in the data manager. A component with an
+unconnected terminal is allowed: it gives a warning, and the studies leave it out until
+it is wired.
+
+\section{Buses}
+
+A bus is drawn as a bar, the \code{busbar} kind, or as a small dot, the \code{junction}
+kind, set in its \gui{Kind} field. Junctions suit points inside a feeder, such as the
+cable joints of S1. A bar is vertical by default.
+
+\begin{itemize}
+  \item \textbf{Orientation}: \menu{Edit > Flip bus orientation} (\keys{\ctrl + \Alt + O})
+    or the bus's context menu (\gui{Switch vertical / horizontal}).
+  \item \textbf{Length}: select the bus and drag the square handle at either end. The
+    opposite end stays put, and the length stays a whole number of grid steps.
+  \item \textbf{Where wires land}: a wire meets the bar at the point nearest to the
+    component's terminal, so several branches tap one bar at different points, as in a
+    real single-line diagram.
+\end{itemize}
+
+\section{Wires}
+
+A wire leaves each terminal in the direction the symbol points, and it runs at right
+angles to its bus. You can shape it with bends:
+
+\begin{itemize}
+  \item \textbf{Add a bend}: double-click the wire, or right-click it and choose
+    \gui{Add bend here}.
+  \item \textbf{Move a bend}: select the wire, then drag the square handle of the bend.
+  \item \textbf{Remove bends}: right-click a bend handle for \gui{Remove this bend}, or
+    the wire for \gui{Remove all bends}.
+\end{itemize}
+
+Bends are stored with the project and move with the drawing. Every bend edit can be
+undone.
+
+\section{Symbols and labels}
+
+\begin{itemize}
+  \item \textbf{Move}: drag a symbol, or a rubber-band selection of several. Wires follow.
+  \item \textbf{Rotate}: \menu{Edit > Rotate 90 deg} (\keys{\ctrl + \Alt + R}) or the
+    context menu. Labels stay upright whatever the rotation.
+  \item \textbf{Labels}: every symbol shows its name and a line of key data, for example
+    \emph{58.5 km}, \emph{166.5 MW 30 MVAr} or \emph{81.5 MVA 70/40 kV 8\%}. Drag a label
+    to put it somewhere else. The position is saved with the project.
+  \item \textbf{Out of service}: an element whose \gui{In service} box is cleared is drawn
+    grey and dashed. No study takes it into account.
+\end{itemize}
+
+\section{Selecting}
+
+Click an element to select it. Drag on empty canvas to draw a rubber band that selects
+everything it touches. \keys{\ctrl} + click adds an element to the selection or removes
+it, and \keys{\ctrl + A} selects all. The \gui{Properties} panel follows the selection.
+Several elements of one type are edited together (\cref{sec:properties}).
+
+\section{The property editor}\label{sec:properties}
+
+\begin{minipage}[t]{0.55\linewidth}
+\gui{Properties} shows a form for the selected element, generated from the element's
+fields and grouped as in \cref{ch:components}: \gui{General}, \gui{Connection},
+\gui{Parameters}, and \gui{Zero sequence} or \gui{Load flow} when the element has such
+data. The internal \gui{id} is shown read-only at the top. Bindings and overrides refer
+to elements by this id.
+
+\begin{itemize}
+  \item \textbf{Numbers and expressions.} A numeric field takes a number or an expression
+    over the project variables, such as \code{(243 + A)/1000}. An expression is stored as a
+    \emph{binding}, a link from the field to the expression kept in the project. The field
+    turns amber and shows the value it evaluates to underneath, like a spreadsheet cell
+    (\cref{ch:parameters}). Clear the field to remove the binding.
+  \item \textbf{Validation.} A value outside a field's range (a negative length, a cos
+    $\varphi$ above 1) is refused. The field turns red and its tooltip says why.
+  \item \textbf{Modes.} Fields that depend on a mode appear only when they apply. Set an
+    external grid's \gui{Impedance from} to \code{ik} and the \gui{Ik} and \gui{cos phi}
+    fields replace \gui{Z Thevenin}.
+  \item \textbf{Empty means default.} Some fields accept an empty value with a meaning of
+    its own: a load's \gui{U nominal} empty means ``the bus base'', and a generator's
+    \gui{Q max} empty means ``no limit''.
+  \item \textbf{Several elements.} With several elements of one type selected, an edit
+    applies to all of them in one undo step. A field whose values differ shows
+    \emph{(several values)}. Names and bus connections are not edited in bulk.
+  \item \textbf{Committing.} A field is committed when you press \keys{Enter} or leave it.
+    Leaving a field without changing it does not create an undo step.
+\end{itemize}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.4\linewidth}\vspace{0pt}
+  \centering\shot[0.95\linewidth]{properties-load.png}
+  \captionof{figure}{A load of S1 whose \gui{P} is bound to the expression
+    \code{(243 + A)/1000}.}
+\end{minipage}
+
+
+\section{Context menus}
+
+\begin{minipage}[t]{0.62\linewidth}
+Right-click an element for its menu. It acts on the selection the element belongs to, and
+it selects the element first if it was not selected.
+
+\begin{description}
+  \item[Thevenin equivalent here] and \gui{Three-phase short circuit here} (buses only)
+    run that study at this bus at once, with the study's other options at their defaults. The
+    result appears as a new tab. No case is added to the project.
+  \item[Properties] brings the property editor forward on this element.
+  \item[Cut, Copy, Duplicate] are the clipboard commands (\cref{sec:clipboard}).
+  \item[Rotate 90 deg] rotates a symbol. For a bus the entry reads \gui{Switch vertical /
+    horizontal}.
+  \item[In service] is checked while the element is in service. Choose it to take the
+    selection out of service, or to put it back.
+  \item[Delete] deletes the selection.
+\end{description}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\linewidth}\vspace{0pt}
+  \centering\shot[0.92\linewidth]{menu-bus.png}
+  \captionof{figure}{The context menu of a bus.}
+\end{minipage}
+
+Right-clicking a wire gives the bend commands described above.
+
+\section{Clipboard}\label{sec:clipboard}
+
+\keys{\ctrl + C} copies the selected elements, their layout and their bindings.
+\keys{\ctrl + V} pastes them with fresh ids, slightly offset, and selects the pasted
+elements. Connections among the copied elements are kept. A connection to a bus that was
+not copied is dropped, so a pasted load whose bus stayed behind arrives unconnected.
+\keys{\ctrl + X} cuts and \keys{\ctrl + D} duplicates (copy and paste in one step). The
+clipboard holds plain JSON text, so it also works between two \app\ windows.
+
+\section{Deleting}\label{sec:deleting}
+
+\keys{Del} deletes the selection. Deleting a bus takes along the components that hang from
+it. \app\ lists them and asks for confirmation first. Deleting a branch leaves its buses
+in place. Bindings of deleted elements are removed with them, and undo brings everything
+back.
+
+\section{Finding an element}\label{sec:find}
+
+\menu{Edit > Find element...} (\keys{\ctrl + F}) opens a list of every bus and component
+as \emph{name (id, type)}. Type a few letters, choose an entry, or type a name or id
+(either is matched, case aside) and press \keys{Enter}. The element is selected, the
+diagram is centred on it, and its properties are shown. Double-clicking an id in the data
+manager does the same.
+
+\section{Undo and redo}
+
+Every change to the project is an undoable step: adding, deleting, moving, rotating,
+connecting, editing fields, wire bends, labels, the bases, the variables and the study
+cases. \menu{Edit > Undo} names the step it will undo. Changes of several elements made in
+one action, such as a multi-selection edit, a paste or deleting a bus with its loads, are
+one step. Two things are not undoable: reloading the variable script and the annotations
+toggle.
+
+\section{Navigating the canvas}
+
+\begin{itemize}
+  \item \textbf{Zoom}: \keys{\ctrl} + mouse wheel (around the cursor), \keys{\ctrl + +} and
+    \keys{\ctrl + -}. \keys{\ctrl + 0} fits the diagram, and \keys{\ctrl + 1} is actual
+    size.
+  \item \textbf{Pan}: drag with the middle mouse button, or hold \keys{Space} and drag
+    with the left button. The mouse wheel alone scrolls.
+\end{itemize}
+
+\section{Tutorial: drawing Assignment S1 by hand}\label{sec:tutorial-s1}
+
+This tutorial rebuilds \file{examples/s1\_a80.psn} from an empty canvas: a 40~kV grid
+feeding a factory through transformer TI1 (40/12~kV), two cable sections and transformer
+TI2 (12/6~kV), with loads at buses b and e.
+
+\begin{steps}
+  \item \menu{File > New}. Place five buses in a row from the library, about 240 units
+    apart. They are named \code{a} to \code{e}. Set the \gui{Kind} of \code{c} and
+    \code{d} to \code{junction}.
+  \item Place an \gui{External grid} to the left of bus~a. It hangs from the nearest bus.
+    Leave \gui{U}~=~1~pu and \gui{Impedance from}~=~\code{z\_ohm} with \gui{Z
+    Thevenin}~=~0, an ideal source.
+  \item Drop a \gui{Transformer} between a and b, and set \gui{S rated}~=~6~MVA, \gui{U
+    rated HV}~=~40~kV, \gui{U rated LV}~=~12~kV, \gui{x}~=~7\,\%. Drop another between d
+    and e: 5~MVA, 12/6~kV, 8\,\%.
+  \item Drop a \gui{Line / Cable} between b and c and another between c and d. Select
+    both and set, in one edit, $r=0.16\,\Omega$/km, $x=0.08\,\Omega$/km and
+    $b_c=3\times10^{-6}$~S/km (type \code{3e-6}). Give the first one \gui{Parallel
+    lines}~=~2.
+  \item Add the variable \code{A}~=~\code{80} in the \gui{Variables} panel. Type
+    \code{(217 + A)/1000} into the \gui{Length} of both cables.
+  \item Place a \gui{Load} below bus~b with \gui{P}~=~\code{(117 - A)/1000}, cos
+    $\varphi$~=~0.9 lagging and \gui{U nominal}~=~12~kV. Place another below bus~e with
+    \gui{P}~=~\code{(243 + A)/1000} and \gui{U nominal}~=~6~kV.
+  \item Open \menu{Network > Base settings...} and set the base power to 10~MVA, the base
+    reference bus to a, and the base voltage there to 40~kV. Buses b, c and d get 12~kV
+    and bus e gets 6~kV, by propagation through the transformer ratios.
+  \item Press \keys{F5}. Without cases, every study runs with its defaults. The
+    \gui{S1c) Bus voltages} tab gives $U_e = 0.9952\angle-0.5345^\circ$~pu $=
+    5.9715$~kV, and the \gui{S1b)} tab gives $Z = 22.5232 + j11.1298$~pu.
+\end{steps}
+
+Save the project with \keys{\ctrl + S}. The study cases of \cref{ch:cases} then record
+which buses each study looks at.

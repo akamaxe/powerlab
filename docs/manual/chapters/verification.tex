@@ -1,0 +1,66 @@
+\chapter{How \app\ is verified}\label{app:verification}
+
+\app\ computes engineering results, so it is tested against independent references rather
+than against its own earlier output. An automated test suite, a few hundred tests, runs
+in seconds and covers the engine, the file format, the command line and the window, which
+is driven without a screen.
+
+\section{References}
+
+\begin{description}
+  \item[MATLAB reference solutions.] Every numeric variable of the MATLAB solutions of
+    the four assignments, and of the LF variant, is stored at full precision (17
+    significant digits) for $A = 80$ and $A = 0$. The tests run every case of the example
+    projects at both values of \code{A} and compare with a relative tolerance of
+    $10^{-9}$, and $10^{-8}$ for the load flow. A refactoring that moves a result in its
+    eighth digit fails.
+  \item[The assignment statements.] The $A = 0$ check values printed in the statements are
+    an independent check, not a comparison with anything \app\ produced, for example
+    $Z_I = 22.5156 + j11.0767$~pu in S1 and $P_\text{loss} = 26.4240$~MW in LF.
+  \item[pandapower.] The load flow is cross-checked against pandapower, an independent
+    open-source solver, on the LF network: voltages, angles, slack power and losses agree
+    to $10^{-8}$. This test is opt-in (\cli{PSA\_ORACLES=1}), because importing pandapower
+    takes longer than the rest of the suite.
+  \item[Finite differences.] The load-flow Jacobian is compared with a finite-difference
+    Jacobian at a random state, and its diagonal with the textbook formulas of
+    \cref{sec:nr}.
+\end{description}
+
+\section{Self-checks in every result}
+
+The results carry their own cross-checks (\cref{ch:studies}): the two-port matrix by
+cascade and by Kron reduction, the equivalent impedance by Kron reduction and through
+the two-port, the Thevenin impedance by the impedance matrix and by Kron reduction, the
+Thevenin voltage by the nodal solve and by the MATLAB route, $\det F = 1$ for reciprocal
+networks, the symmetry of the admittance matrix, and the load-flow power balance. A
+residual well above rounding level is a sign that something in the network is not what
+you think.
+
+\section{Properties that must hold}
+
+Besides fixed numbers, the tests check relations any correct solver satisfies. A few
+examples:
+\begin{itemize}
+  \item an unbalanced load with phase factors $(1, 1, 1)$ gives the balanced solution;
+  \item the general fault solver reproduces the closed-form currents of the
+    three-phase, line-to-ground, line-to-line and double line-to-ground faults;
+  \item a \code{Dyn} transformer is a shunt on its star side in the zero sequence, and
+    nothing on its delta side;
+  \item two generators sharing a bus give the same flow as one generator with their sum;
+  \item a constant-impedance load draws $S_n U^2$ at the solved voltage.
+\end{itemize}
+
+\section{Running the tests yourself}
+
+From the repository's root:
+
+\begin{terminal}
+python -m pytest                            # the whole suite
+python -m pytest tests/test_lf.py           # one file
+PSA_ORACLES=1 python -m pytest tests/test_lf.py -k pandapower
+python -m unittest discover -s tests -t .   # without pytest
+\end{terminal}
+
+The reference tables of \cref{ch:components,ch:studies} are generated from the program
+itself, by \cli{tools/make\_manual.py}. A test fails when they fall out of step with the
+code.

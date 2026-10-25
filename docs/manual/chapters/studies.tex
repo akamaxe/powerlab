@@ -1,0 +1,379 @@
+\chapter{Studies}\label{ch:studies}
+
+This chapter describes the eleven studies: what each one computes and how, its options,
+what its result tab shows, how it checks itself, and what it draws on the diagram. The
+option tables are generated from the studies' definitions.
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{4.6cm}>{\raggedright\arraybackslash}p{2.6cm}X@{}}
+\toprule
+\sffamily\bfseries Study & \sffamily\bfseries Menu group & \sffamily\bfseries In short \\ \midrule
+Per-unit model (\code{model}) & Model & Bases and every component in per unit. \\
+Admittance matrix (\code{ybus}) & Model & $Y$ of the positive, negative or zero sequence. \\
+Sequence model (\code{seqmodel}) & Model & What path each element gives in each sequence. \\
+S1a) Two-port matrix (\code{s1a}) & Assignment S1 & ABCD matrix between two buses. \\
+S1b) Equivalent impedance (\code{s1b}) & Assignment S1 & $Z = U/I$ into the passive network. \\
+S1c) Bus voltages (\code{s1c}) & Assignment S1 & Linear solve with the S1 phasor chain. \\
+Bus voltages (\code{linear}) & Network & Linear solve of any network. \\
+Thevenin equivalent (\code{thevenin}) & Network & $U_\text{th}$ and $Z_{\text{th},1/2/0}$ at a bus. \\
+Short circuit (\code{short\_circuit}) & Network & 3ph, SLG, LL or LLG fault. \\
+Load flow (\code{loadflow}) & Network & Newton--Raphson load flow. \\
+Unbalanced load (\code{unbalanced\_load}) & Network & A load with different power per phase. \\
+\bottomrule
+\end{reftable}
+
+\paragraph{Which part of the network a study sees.} Out-of-service elements are always
+ignored. The network studies (admittance matrix, linear voltages, Thevenin, short
+circuit, load flow, unbalanced load, sequence model) also keep only the \emph{energized}
+part of the network: the islands that contain an external grid or a generator. A case
+that disconnects part of the network simply sees the rest, and the disconnected buses are
+reported as information. The S1 studies analyse the whole network as drawn.
+
+\paragraph{Loads in the linear studies.} Every study except the load flow treats every
+load as a constant impedance at its nominal voltage, which keeps the problem linear and
+exact in one solve. A load set to \code{constant\_power} gets a warning in those studies.
+
+% ===========================================================================
+\section{Per-unit model}\label{sec:study-model}
+
+The starting point of every hand calculation: the bases and each component in per unit,
+with the factors that took it there.
+
+\input{generated/options-model}
+
+\paragraph{Result.}
+\begin{itemize}
+  \item \gui{Base values}: $U_\text{base}$, $Z_\text{base}$ and $I_\text{base}$ of every
+    bus, with $S_\text{base}$ in the note;
+  \item \gui{Voltage zones}: the buses that share each base voltage;
+  \item \gui{Component values in per unit}: for each component, its $Z$, its shunt
+    admittance (the PI half-shunt for lines, the total admittance for loads and shunts),
+    its power in MVA, its nominal voltage, the factor $(U_\text{base}/U_n)^2$ and a note,
+    such as \emph{2 parallel line(s), 0.297 km} or \emph{capacitive}.
+\end{itemize}
+
+% ===========================================================================
+\section{Admittance matrix (Y-bus)}\label{sec:study-ybus}
+
+The bus admittance matrix of one sequence network of the energized network, the way the
+course writes it: S2a (positive sequence, source as an internal node, $9\times9$) and S3a
+(zero sequence, source grounded, $8\times8$).
+
+\input{generated/options-ybus}
+
+\paragraph{Sources.} A source with zero impedance never enters the matrix, because as an
+admittance it would be a short circuit. A source behind an impedance enters as follows:
+\begin{description}
+  \item[\code{internal\_node}] as an extra node \emph{(internal)} behind a series branch
+    $Z_\text{th}$, placed after the buses;
+  \item[\code{grounded}] as a shunt $1/Z_\text{th}$ to earth at its bus (the Norton form);
+  \item[\code{exclude}] not at all: the passive network.
+\end{description}
+
+\paragraph{Result.} The matrix, with MATLAB's common factor in the title when there is
+one (\emph{1.0e+02 *}). Below it are the \gui{Nodes} table, which lists each row with
+its node, id and $U_\text{base}$, and a \gui{Checks} table with the symmetry residual
+$\max|Y - Y^T|$ and the source treatment. Right-click the matrix for \gui{Copy as MATLAB}
+(\cref{sec:copy-matlab}).
+
+% ===========================================================================
+\section{Sequence model}
+
+For each element, the path it gives in the positive and the zero sequence, with its
+impedance or admittance in per unit and a note. The note says, for example, that a
+\code{Dyn} transformer is a shunt on its star side, that a delta load is open, or that a
+grid's $Z_0$ comes from $3U/I_{k1} - 2Z_1$. The negative sequence equals the positive one
+without source voltages, so it is not printed separately. When a line has no
+zero-sequence data, the zero-sequence table is replaced by a warning that names it.
+
+\input{generated/options-seqmodel}
+
+% ===========================================================================
+\section{S1a) Two-port matrix}\label{sec:study-s1a}
+
+The transmission (ABCD) matrix between two buses, with the course's convention
+\[
+  \begin{bmatrix} U_1 \\ I_1 \end{bmatrix} =
+  F \begin{bmatrix} U_2 \\ I_2 \end{bmatrix}, \qquad
+  F = \begin{bmatrix} A & B \\ C & D \end{bmatrix},
+\]
+port~1 on the source side and port~2 on the load side. Swapping the ports gives a
+different matrix.
+
+\input{generated/options-s1a}
+
+\paragraph{The termination rule.} The two-port is the network \emph{between} the ports.
+A load or source sitting on a port bus is the termination, not part of the two-port, so
+it is excluded. The same holds for whatever hangs off a port without leading to the other
+one, such as the rest of a feeder beyond port~2. The dialog lists the shunts on the port
+buses, and you can tick one to include it anyway. An ideal source on a port can never be
+included, because it would short-circuit the port. Line charging is always kept, because
+it belongs to the line.
+
+\paragraph{Two methods.} The matrix is computed twice. First by cascading the element
+matrices along the path,
+\[
+  F_\text{series}(z) = \begin{bmatrix} 1 & z \\ 0 & 1 \end{bmatrix}, \quad
+  F_\text{shunt}(y) = \begin{bmatrix} 1 & 0 \\ y & 1 \end{bmatrix}, \quad
+  F_\pi = F_\text{shunt}(y_\text{sh})\,F_\text{series}(z)\,F_\text{shunt}(y_\text{sh}),
+\]
+and then by Kron reduction of the Y-bus onto the two ports. The relative residual between
+the two is reported. It is a real check: the line charging lives inside $F_\pi$ in one
+method and on the diagonal of $Y$ in the other, so counting it twice would show up as a
+residual of about $10^{-5}$. In a meshed network the path is not unique and the cascade
+does not exist; the result then comes from the Y-bus alone, with a warning.
+
+\paragraph{Result.} The convention, the elements excluded at the ports and why, each
+element's matrix in cascade order, $F$ itself, and the checks: $\det F$ (equal to 1 for a
+reciprocal network), $|\det F - 1|$, the cascade-versus-Y-bus residual and the cascade
+path.
+
+% ===========================================================================
+\section{S1b) Equivalent impedance}
+
+The impedance $Z = U/I$ seen looking into the \emph{passive} network from one bus, with
+the sources switched off. In S1, this is the factory seen from its feeding point.
+
+\input{generated/options-s1b}
+
+The impedance comes from Kron reduction of the Y-bus onto the bus. With a
+\gui{Cross-check against port}, it is computed again through the two-port relation
+$Z = (A Z_\text{term} + B)/(C Z_\text{term} + D)$, with $Z_\text{term}$ the termination at
+the far port, and both residuals are reported.
+
+\paragraph{Result.} $Z$ in per unit and in ohm, $|Z|$, $\arg Z$ and the base impedance,
+then the cross-check table.
+
+% ===========================================================================
+\section{S1c) Bus voltages and the linear network}\label{sec:study-linear}
+
+Two studies share one solve: \gui{S1c) Bus voltages} and \gui{Bus voltages (linear
+network)}. They solve the network driven by its sources, with every load a constant
+impedance, so one linear solve is exact:
+\[
+  Y U = I, \qquad
+  \text{ideal sources fixing their bus voltage,}\quad
+  \text{others a Norton pair } \left(\tfrac{1}{Z_\text{th}},\ \tfrac{E}{Z_\text{th}}\right).
+\]
+This is the pre-fault state the Thevenin and fault studies start from.
+
+\input{generated/options-s1c}
+
+\gui{Bus voltages (linear network)} has the same option:
+
+\input{generated/options-linear}
+
+\paragraph{Result.}
+\begin{itemize}
+  \item the headline: the voltage at the chosen bus in pu, angle and kV, and the voltage
+    drop from the source in percent;
+  \item \gui{Phasor chain} (single-source networks): the S1 chain $U_a \to I_a \to [U_e;
+    I_e]$, with $I_a = U_a/Z_I$ and $[U_e; I_e]$ from the two-port matrix;
+  \item \gui{Bus voltages}: every bus in pu, angle, kV, and the current injected;
+  \item \gui{Branch flows}: each branch's current, power and losses at its sending end,
+    with the total losses in the note;
+  \item \gui{Sources}: each source's current in pu and kA, and its power in MVA;
+  \item \gui{Cross-check}: the far-bus voltage from the nodal solve against the two-port
+    chain, and the source current against $U/Z$.
+\end{itemize}
+With more than one source, the phasor chain and the two-port cross-check are skipped,
+with a warning, because $I = U/Z$ then no longer holds. The nodal solve is exact either
+way.
+
+\paragraph{Annotations.} Every bus shows its voltage in kV and in pu with its angle, and
+every branch its current and sending-end power.
+
+% ===========================================================================
+\section{Thevenin equivalent}\label{sec:study-thevenin}
+
+The equivalent seen from one bus: the open-circuit voltage and the impedance of each
+sequence network.
+
+\input{generated/options-thevenin}
+
+\paragraph{How.} $U_\text{th}$ is the bus voltage of the pre-fault linear solve, with no
+voltage factor. $Z_{\text{th},1}$, $Z_{\text{th},2}$ and $Z_{\text{th},0}$ are the diagonal
+entries $Z_{kk}$ of the impedance matrices of the three sequence networks, with the
+sources' EMFs switched off and their impedances kept. They are computed as columns of
+$Z = Y^{-1}$ from one LU factorisation per sequence. A bus with no path to earth in a sequence,
+such as the zero sequence behind a delta winding, has an \emph{open} (infinite) impedance
+there. When a line has no zero-sequence data, $Z_{\text{th},0}$ is left out with a
+warning.
+
+\paragraph{Cross-checks.} $Z_{\text{th},1}$ is compared with the Kron reduction of the
+Y-bus onto the bus. With a single source behind an impedance, $U_\text{th}$ is also
+compared with the route of the MATLAB solution, $U_\text{th} = Z(k,s)\,E/Z(s,s)$. The
+residuals are in the \gui{Cross-checks} table.
+
+\paragraph{Result.} $U_\text{th}$ in pu and kV; each $Z_\text{th}$ in pu and ohm; the
+three-phase fault current $I_{sc} = U_\text{th}/Z_{\text{th},1}$ in pu and kA; the
+short-circuit power as the course defines it, $S_{sc} = U_\text{th}\,\conj{I_{sc}}\,
+S_\text{base}$, its magnitude, and $\sqrt3\,U_\text{base}|I_{sc}|$ for comparison; and,
+when $Z_0$ is known, the line-to-ground fault current $3U_\text{th}/(Z_1 + Z_2 + Z_0)$.
+
+\paragraph{Annotations.} The bus shows $U_\text{th}$, $Z_{\text{th},1}$ and
+$Z_{\text{th},0}$.
+
+\begin{note}
+A bus that holds an ideal source has $Z_\text{th} = 0$ by construction. \app\ refuses it
+and asks for a finite source impedance. The default bus avoids such a bus.
+\end{note}
+
+% ===========================================================================
+\section{Short circuit}\label{sec:study-short-circuit}
+
+A shunt fault at one bus, with every bus voltage and branch current during the fault,
+phase by phase.
+
+\input{generated/options-short_circuit}
+
+\paragraph{Fault types.} With phase $a$ as the reference phase:
+\begin{description}
+  \item[\code{3ph}] all three phases to a common point through $Z_f$ each;
+  \item[\code{slg}] phase $a$ to earth through $Z_f$;
+  \item[\code{ll}] phases $b$ and $c$ together through $Z_f$;
+  \item[\code{llg}] phases $b$ and $c$ to earth, each through $Z_f$ and together through
+    $Z_g$.
+\end{description}
+
+\paragraph{How.} Each fault is written as three phase equations $A\,U_{abc} + B\,I_{abc} =
+0$ and solved in symmetrical components against the sequence Thevenin equivalents of the
+bus (\cref{sec:shunt-solver}). For a solid single line-to-ground fault this reduces to
+the textbook $I_1 = I_2 = I_0 = U_\text{th}/(Z_1 + Z_2 + Z_0 + 3Z_f)$. Only the sequences
+a fault involves are built: a three-phase fault needs neither the negative nor the zero
+sequence. The voltages at every other bus follow from one impedance-matrix column per
+sequence, $U_n(i) = U_{\text{pre},n}(i) - Z_n(i,k)\,I_n$, and the branch currents from
+those voltages. There is no voltage factor: the pre-fault state is the linear network.
+
+\paragraph{Result.}
+\begin{itemize}
+  \item \gui{Fault}: bus, type, $Z_f$ (and $Z_g$) in ohm and pu, $U_\text{pre}$, the
+    sequence impedances, $I_1$, $I_2$, $I_0$ and $I_f$ in pu and kA, the earth current
+    $3I_0$ for faults to earth, the fault power $S_f = U_\text{th}\conj{I_f}S_\text{base}$
+    for a three-phase fault, and $\sqrt3\,U_\text{base}|I_f|$;
+  \item \gui{At the faulted bus}: the phase currents and line-to-neutral voltages;
+  \item \gui{Bus voltages during the fault}: $U_a$, $U_b$, $U_c$ of every bus in pu and kV;
+  \item \gui{Branch currents during the fault}: each branch's phase currents and its
+    largest current in kA;
+  \item the Thevenin cross-checks.
+\end{itemize}
+
+\paragraph{Annotations.} The faulted bus shows $I_f$ in kA and its three phase voltages.
+Other buses show their voltage, or their three phase voltages when the fault unbalances
+them, and every branch shows its largest current.
+
+\begin{tip}
+For a quick three-phase fault, right-click a bus and choose \gui{Three-phase short circuit
+here}.
+\end{tip}
+
+% ===========================================================================
+\section{Load flow (Newton--Raphson)}\label{sec:study-loadflow}
+
+The steady state of the network with its generators, voltage controllers and
+constant-power loads: the problem of Assignment LF.
+
+\input{generated/options-loadflow}
+
+\paragraph{Bus types.} \app\ derives each bus's type from what is connected, and names
+it as the course does:
+\begin{description}
+  \item[Slack] a bus with a slack generator or an external grid with \gui{Slack} checked.
+    Its voltage and angle are given. Exactly one per island is required.
+  \item[PU] a bus with a PV generator or an SVC. Its active power and voltage magnitude
+    are given.
+  \item[PQ] every other bus. Its active and reactive power are given (zero at a bus with
+    nothing connected).
+\end{description}
+
+\paragraph{What enters where.} Constant-impedance loads and constant-B shunts are part of
+the admittance matrix. Constant-power loads, constant-Q shunts, PQ generators and the
+fixed $P$ of PV generators are \emph{injections}, with generation counted positive.
+External grids enter only as slack buses; their impedance is short-circuit data.
+
+\paragraph{The method.} Polar Newton--Raphson from a flat start (1~pu and $0^\circ$
+except at the given voltages). The mismatches are
+\[
+  \Delta P_k = P_k^\text{spec} - P_k(\theta, U) \ \ (\text{PU and PQ buses}),\qquad
+  \Delta Q_k = Q_k^\text{spec} - Q_k(\theta, U) \ \ (\text{PQ buses}),
+\]
+and each iteration solves for the angle and relative magnitude corrections
+\[
+  \begin{bmatrix} \Delta P \\ \Delta Q \end{bmatrix} =
+  \begin{bmatrix} H & N \\ J & L \end{bmatrix}
+  \begin{bmatrix} \Delta\theta \\ \Delta U/U \end{bmatrix}, \qquad
+  \theta \mathrel{+}= \Delta\theta, \quad U \mathrel{*}= 1 + \Delta U/U,
+\]
+with $H = \partial P/\partial\theta$, $N = U\,\partial P/\partial U$, $J = \partial
+Q/\partial\theta$ and $L = U\,\partial Q/\partial U$ (the element formulas are in
+\cref{sec:nr}). The iteration stops when the largest mismatch falls below the tolerance
+($10^{-10}$~pu by default), usually in four or five iterations.
+
+\paragraph{Reactive limits.} With \gui{Enforce reactive limits} checked, a PU bus whose
+generators or SVC would need more than their combined \gui{Q max} (or less than \gui{Q
+min}) becomes a PQ bus, held at that limit, and the flow is solved again from the current
+state. A warning names the bus. A bus that reaches a limit stays PQ: there is no
+switching back in this version.
+
+\paragraph{Result.}
+\begin{itemize}
+  \item the headline: convergence, iterations, the total losses and the slack's $P$ and
+    $Q$;
+  \item \gui{Bus types and voltages}: every bus's type, $|U|$ in pu and kV, angle, and the
+    net $P$ and $Q$ it injects;
+  \item \gui{Generation and voltage control}: each generator, external grid and SVC with
+    its bus type, $P$ and $Q$. An SVC also reports $B = Q/U^2$ in pu and siemens, and a
+    limited device says which limit holds it;
+  \item \gui{Loads}: each load's model and the $P$ and $Q$ it draws at the solved voltage.
+    A constant-impedance load draws $S_n\,U^2$;
+  \item \gui{Shunts}: each shunt's model, the $Q$ it delivers and its $B$. A constant-B
+    shunt delivers $B\,U^2$, which is why the LF variant's bank at bus~5 gives 8.3648~MVAr
+    rather than its rated 8.2~MVAr;
+  \item \gui{Branch flows}: $P$ and $Q$ into each branch at both ends, its active and
+    reactive losses, and its largest current in kA;
+  \item \gui{Losses and power balance}: $P_\text{loss}$ as the sum of the branch losses,
+    $Q_\text{loss}$, the generation and the load, and the two balance residuals, which
+    close at the tolerance;
+  \item \gui{Newton-Raphson iterations}: for each iteration, the largest $|\Delta P|$ and
+    $|\Delta Q|$, the bus where the larger one occurs, and the largest step taken;
+  \item \gui{Jacobian [H N; J L] at the flat start}, with every row and column labelled.
+    The Jacobian at the solution and the load-flow Y-bus are in the result too, and they
+    come out with \gui{Export results} as JSON.
+\end{itemize}
+
+\paragraph{When it does not converge.} The study does not stop with an error. It shows
+the last iterate with a warning, \emph{``The load flow did not converge: largest mismatch
+\dots\ after 20 iterations. The values below are the last iterate, not a solution.''},
+and keeps the iteration log, so you can see where it went wrong. Typical causes are a load
+far beyond what the network can carry, or an island whose only voltage reference is
+missing.
+
+\paragraph{Annotations.} Every bus shows $|U|\angle\theta$, its type and its voltage in kV.
+Voltages outside 0.95--1.05~pu are drawn in the warning colour. Every branch shows its
+sending-end $P$ and $Q$ and its losses, every generator its $P$ and $Q$, and every SVC
+its $Q$ and $B$.
+
+% ===========================================================================
+\section{Unbalanced load}\label{sec:study-unbalanced}
+
+A load that draws a different power on each phase, solved with the sequence networks.
+Assignment S3e disconnects half of phase $a$ of load LDe: factors 0.5, 1, 1.
+
+\input{generated/options-unbalanced_load}
+
+\paragraph{How.} The load is taken out of the sequence networks, which then give the
+voltage at its bus without it and the sequence Thevenin impedances there. The load's
+phase admittance matrix $Y_\text{ph}$, built from its balanced admittance, its connection
+and the phase factors, closes the problem, solved like a fault with $A = Y_\text{ph}$ and
+$B = -\mathbf{I}$ (\cref{sec:shunt-solver}). For a grounded star, $Y_\text{ph}$ is
+diagonal; a neutral impedance couples the phases; an ungrounded star and a delta carry no
+zero-sequence current. For a delta, the factors apply to the branches $ab$, $bc$ and
+$ca$. The voltages elsewhere follow from the impedance-matrix columns.
+
+\paragraph{Result.} The load (connection, factors, balanced impedance, voltage without it,
+sequence impedances at its bus); the matrices $Z_\text{ph}$ and $Z_s = T^{-1}Z_\text{ph}T$;
+the sequence and phase currents it draws and the phase voltages at its bus; the voltages
+at the report bus (pre-disturbance, sequence and phase); and every bus's three phase
+voltages.
+
+\paragraph{Annotations.} Every bus shows its three phase voltages in pu. The load's bus
+and the report bus are highlighted.

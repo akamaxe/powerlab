@@ -1,0 +1,66 @@
+\chapter{Project files}\label{ch:files}
+
+A project is one \file{.psn} file: UTF-8 JSON with line feeds, readable in any text
+editor and easy to compare in a version-control diff. It holds the network, its
+variables, the drawing and the study cases. Results are not saved; run the cases again
+after opening a project.
+
+\section{Structure}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{2.6cm}X@{}}
+\toprule
+\sffamily\bfseries Key & \sffamily\bfseries Contents \\ \midrule
+\code{format}, \code{version} & \code{"psa-project"} and the format version, 2 today. \\
+\code{meta} & Title and notes of the project. \\
+\code{network} & \code{s\_base\_mva}, \code{f\_hz}, the base reference
+  (\code{base\_ref}: \code{bus} and \code{u\_base\_kv}), the \code{buses} and the
+  \code{components}. Each component is an object with its \code{type}, its \code{id} and
+  every field by its name. Complex numbers are written \code{[re, im]}. \\
+\code{parameters} & \code{script\_path}, the \code{project\_vars} as
+  \code{[name, expression]} pairs in order, and the \code{bindings}
+  (\code{"LD4.p\_mw": "158.5 + 0.1*A"}). \\
+\code{layout} & The \code{grid} step, the \code{items} (each element's position,
+  rotation, bus orientation and length, and a dragged label offset) and the \code{wires}
+  (the bends of each wire, keyed \code{"COMPONENT:terminal"}). \\
+\code{cases} & The study cases: \code{id}, \code{study}, \code{title}, \code{options},
+  \code{overrides} and \code{exclude}. Complex options are written
+  \code{\{"re": ..., "im": ...\}}. \\
+\code{view} & The display state, such as the annotations toggle. \\
+\bottomrule
+\end{reftable}
+
+A case as it appears in \file{examples/lf\_220kv.psn}:
+
+\begin{terminal}
+{"id": "LFd", "study": "loadflow",
+ "title": "LFd) Load flow with P_LD4 increased by 10 %",
+ "options": {}, "overrides": {"LD4.p_mw": "1.1*value"}}
+\end{terminal}
+
+\section{Compatibility}
+
+\begin{itemize}
+  \item \textbf{Older files} are upgraded when opened. Version~1 kept per-study options
+    instead of cases, and those become cases. The file is written in the current format
+    the next time you save it.
+  \item \textbf{New fields} have defaults, so a file written before a field existed opens
+    with the default. A field the program does not know is ignored.
+  \item \textbf{Only the network is required.} A file without a \code{layout} opens with
+    an automatic layout: buses from left to right by distance from the base reference
+    bus, branches between their buses and shunt elements below theirs.
+\end{itemize}
+
+\section{The variable script}
+
+When a project links a variable script, the script stays a separate \file{.py} file. The
+project keeps its path and, under \code{project\_vars} and in the fields, the values it
+gave last time. Opening the project never runs the script without asking
+(\cref{sec:script}).
+
+\section{Saving and examples}
+
+\keys{\ctrl + S} saves to the project's file. An untitled project, or one opened as a
+copy such as \cli{run\_gui.py --example}, asks for a name instead, so an example is never
+overwritten by accident. The window title shows the file's name, with an asterisk while
+there are unsaved changes. Closing the window, opening another project or starting a new
+one asks first whether to save them.

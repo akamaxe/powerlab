@@ -1,0 +1,112 @@
+\chapter{Parametric variables}\label{ch:parameters}
+
+Assignment data is often algebraic: a cable \emph{217 + A} metres long, a load of
+\emph{(117 -- A)}~kW. \app\ lets you write exactly that. Define \code{A} once, write each
+field as an expression in \code{A}, and change \code{A} to re-evaluate the whole network.
+This is how the example projects reproduce both the $A=80$ solution and the $A=0$ answer
+printed in the statements.
+
+\section{Three layers}
+
+Values are evaluated in this order, each layer able to use the names of the layers
+before it:
+
+\begin{enumerate}
+  \item \textbf{Script variables}, the numeric globals of a Python file you link to the
+    project (\cref{sec:script}).
+  \item \textbf{Project variables}, ordered \emph{name = expression} pairs edited in the
+    \gui{Variables} panel. A variable may use the variables above it and the script's.
+  \item \textbf{Bindings}, \emph{COMPONENT.field = expression}. They are written into the
+    network's fields whenever a variable changes.
+\end{enumerate}
+
+The network always holds evaluated numbers. The expressions live beside it, in the
+project file's \code{parameters} section, so the studies never see an expression.
+
+\section{The Variables panel}
+
+\begin{minipage}[t]{0.53\linewidth}
+The table lists every variable with its \gui{Name}, \gui{Expression}, evaluated
+\gui{Value} and \gui{Source}: \code{project} for those defined here, \code{script} for
+those read from the linked file.
+
+\begin{itemize}
+  \item \gui{Add variable} adds a row. Type its name and expression in the table.
+  \item Edit a project variable's name or expression by double-clicking its cell. Script
+    variables are read-only here; edit them in the script.
+  \item \gui{Remove} deletes the selected project variable.
+  \item A variable whose expression fails shows the error as the tooltip of its cell.
+\end{itemize}
+
+Every change re-evaluates the bindings, makes the results stale and can be undone. Undo
+puts the network back to its previous values too.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.42\linewidth}\vspace{0pt}
+  \centering\shot[0.95\linewidth]{panel-variables.png}
+\end{minipage}
+
+\section{Binding a field}
+
+Type an expression instead of a number into any parametric numeric field, in the
+property editor or in the data manager. The field turns amber and shows its value
+underneath (\cref{sec:properties}). Clear the field to remove the binding. The field then
+keeps its last value, or becomes empty if empty is a value it accepts. Bound cells are tinted in the data manager too. Fields marked
+\emph{Numbers only} in the reference tables, such as the number of parallel lines, do not
+take expressions.
+
+\section{Expressions}
+
+An expression may use:
+
+\begin{itemize}
+  \item numbers, including complex ones: \code{1.6+0.3j}. Complex fields also accept
+    MATLAB's \code{1.6+0.3i};
+  \item the operators \code{+ - * / // \% **} and parentheses;
+  \item the variables defined before it;
+  \item the functions \code{sqrt}, \code{sin}, \code{cos}, \code{tan}, \code{asin},
+    \code{acos}, \code{atan}, \code{atan2}, \code{exp}, \code{log}, \code{log10},
+    \code{hypot}, \code{degrees} (also \code{deg}), \code{radians} (also \code{rad}),
+    \code{abs}, \code{min}, \code{max}, \code{round}, \code{float} and \code{int};
+  \item the constants \code{pi} and \code{e}.
+\end{itemize}
+
+Attribute access, indexing, keyword arguments and lambdas are not allowed: expressions
+are evaluated by a whitelist, never by Python's \code{eval}. A failing expression says
+why, for example \emph{``Unknown name 'B'. Define it as a variable or load it from your
+script.''} or \emph{``Division by zero.''}
+
+For example, the external grid of S2 (70~kV, 25~kA at $\cos\varphi = 0.15$) can be
+written directly as its Thevenin impedance:
+
+\begin{terminal}
+70/(sqrt(3)*25)*(0.15 + 1j*sqrt(1 - 0.15**2))      # = 0.2425 + 1.5983j ohm
+\end{terminal}
+
+The example projects use the \gui{Impedance from}~=~\code{ik} mode instead, which says
+the same with less algebra.
+
+\section{A variable script}\label{sec:script}
+
+For many variables, or variables computed with some logic, write them in a Python file
+of your own, such as \file{examples/variables\_S1.py}, and link it with \gui{Link
+script...} in the \gui{Variables} panel. \app\ runs the file and keeps its public numeric
+globals: numbers whose names do not start with an underscore.
+
+\begin{caution}
+The script is ordinary Python and runs with your privileges. \app\ asks for confirmation
+when you link one, and again every time you open a project that links one. If you
+decline, the values saved in the project are used. \gui{Reload} runs the script again
+when you have edited it. Only link files you trust.
+\end{caution}
+
+The script's path is saved in the project. A relative path is read from the project's
+folder, which keeps a project and its script movable together. Linking a script is an
+undoable step; reloading it is not.
+
+\section{Variables and study cases}
+
+Study cases can override fields with expressions too, and those expressions see the
+project variables plus \code{value}, the field's own value (\cref{sec:variant}). A case
+that sets \code{LD4.p\_mw} to \code{1.1*value} raises that load by 10\,\% whatever
+\code{A} is. On the command line, \cli{--set A=0} changes a variable before solving
+(\cref{ch:console}).

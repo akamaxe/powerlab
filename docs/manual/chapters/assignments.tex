@@ -1,0 +1,136 @@
+\chapter{Solving the EG2100 assignments}\label{ch:assignments}
+
+Each assignment of the course is an example project whose study cases are its tasks. Open
+the project, press \keys{F5}, and read each task in its result tab. \keys{\ctrl + R}
+shows the selected result on the diagram. The console gives the same results:
+\cli{python run\_headless.py examples/<file>.psn}.
+
+Every project is parametric in the A-number, the variable \code{A}. The values below are
+for $A = 80$, checked digit by digit against the MATLAB reference solutions. Set
+\code{A}~=~\code{0} in the \gui{Variables} panel (or pass \cli{--set A=0}) to reproduce
+the check values printed in the assignment statements. The test suite checks those too.
+
+\section{S1: the factory network}
+
+\begin{minipage}[t]{0.48\linewidth}
+\file{examples/s1\_a80.psn}. A 40~kV grid (bus a) feeds a factory through transformer TI1
+(6~MVA, 40/12~kV), two cable sections to bus d, and transformer TI2 (5~MVA, 12/6~kV) to
+bus e. Loads LDb and LDe depend on \code{A}, and so do the cable lengths.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}\vspace{0pt}
+  \centering\shot[\linewidth]{diagram-s1.png}
+\end{minipage}
+
+\medskip
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.0cm}X@{}}
+\toprule
+\sffamily\bfseries Task & \sffamily\bfseries Case (study) & \sffamily\bfseries Result at $A = 80$ \\ \midrule
+Per-unit model & \code{model} & $U_\text{base}$ = 40, 12, 6~kV; $Z_\text{TI1} = j0.1167$~pu,
+  $Z_\text{TI2} = j0.1600$~pu \\
+S1a: two-port matrix from bus a to bus e & \code{s1a} (two-port) & $A = 1.0002 + j0.0004$,
+  $B = 0.0049 + j0.2792$, $C = 0.0037 - j0.0018$, $D = 1.0003 + j0.0006$, $\det F = 1$ \\
+S1b: impedance seen from bus a & \code{s1b} (equivalent impedance) & $Z_I = 22.5232 +
+  j11.1298$~pu ($A=0$: $22.5156 + j11.0767$~pu) \\
+S1c: voltage at bus e & \code{s1c} (bus voltages) & $U_e = 0.9952\angle-0.5345^\circ$~pu
+  $= 5.9715$~kV \\
+\bottomrule
+\end{reftable}
+
+\section{S2: the meshed 40~kV grid}
+
+\file{examples/s2\_grid.psn}, or \file{examples/grid\_industry.psn}, where the S1 industry
+hangs from bus~7. In the latter, cases S2a--S2c take TI1 out of service (their
+\gui{Network variant} tab), as the assignment does. The 70~kV grid is an external grid of
+25~kA at $\cos\varphi = 0.15$.
+
+\begin{figure}[H]
+  \centering\shot[0.94\linewidth]{diagram-s2d.png}
+  \caption{\file{grid\_industry.psn} after case S2d: the industry's voltages with LDe at
+    50\,\%.}
+\end{figure}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.3cm}X@{}}
+\toprule
+\sffamily\bfseries Task & \sffamily\bfseries Case (study) & \sffamily\bfseries Result at $A = 80$ \\ \midrule
+S2a: admittance matrix with the 70~kV Thevenin source & \code{S2a} (Y-bus, source as
+  internal node) & The $9\times9$ matrix with MATLAB's common factor; $Y(1,1) = 45.4663 -
+  j401.5545$, $Y(9,9) = 45.4663 - j299.6795$~pu \\
+S2b: Thevenin equivalent at bus 7 & \code{S2b} (Thevenin) & $U_\text{Th7} =
+  0.9348\angle-3.0196^\circ$, $Z_\text{Th7} = 0.1645 + j0.0677$~pu ($A=0$:
+  $0.9732\angle-1.4224^\circ$, $0.0649 + j0.0356$~pu) \\
+S2c: three-phase fault at bus 7 & \code{S2c} (short circuit, \code{3ph}) & $I_{sc} =
+  0.7584$~kA, $S_{sc} = 45.4220 + j18.6951$~MVA \\
+S2d: industry voltages with LDe at 50\,\% & \code{S2d} in \file{grid\_industry.psn}
+  (bus voltages, override \code{LDe.p\_mw} = \code{0.5*value}) & $U_\text{LDe} =
+  0.9289\angle-3.2857^\circ$~pu $= 5.5734$~kV \\
+\bottomrule
+\end{reftable}
+
+\section{S3: sequence networks and unsymmetrical conditions}
+
+\file{examples/grid\_industry.psn}. The zero-sequence data is in the \gui{Zero sequence}
+group of each element's properties: grid lines with $r_0 = 2.5r$, $x_0 = 2x$, $b_0 =
+0.5b$; cables with $Z_0 = 3Z_1$, $b_0 = 0.5b$; TI2 a \code{Dyn} transformer; the bus-6
+load and the bus-3 shunt delta-connected; the grid's $Z_0$ from $I_{k1} = 13$~kA at
+$\cos\varphi = 0.15$. S3a--S3c are also in \file{s2\_grid.psn}.
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.3cm}X@{}}
+\toprule
+\sffamily\bfseries Task & \sffamily\bfseries Case (study) & \sffamily\bfseries Result at $A = 80$ \\ \midrule
+S3a: zero-sequence admittance matrix & \code{S3a} (Y-bus, \code{zero}, sources
+  \code{grounded}) & The $8\times8$ matrix; $Y_0(7,7) = 4.8795 - j1.4449$~pu \\
+S3b: sequence Thevenin impedances at bus 7 & \code{S3b} (Thevenin) & $Z_{\text{Th7},1} =
+  Z_{\text{Th7},2} = 0.1645 + j0.0677$, $Z_{\text{Th7},0} = 0.4031 + j0.1226$~pu \\
+S3c: single line-to-ground fault at bus 7 & \code{S3c} (short circuit, \code{slg}) &
+  $I_f = 3.6126\angle-22.4347^\circ$~pu $= 0.5214$~kA \\
+S3d: Thevenin equivalents at bus e, LDe disconnected & \code{S3d} (Thevenin, LDe out of
+  service) & $U_\text{Th,e} = 0.9340\angle-3.0422^\circ$, $Z_1 = 0.1694 + j0.3466$,
+  $Z_0 = j0.1600$~pu \\
+S3e: half of phase $a$ of LDe disconnected & \code{S3e} (unbalanced load, factors 0.5,
+  1, 1) & Bus~7: $21.4825\angle-3.0011^\circ$, $21.4474\angle-123.0463^\circ$,
+  $21.4503\angle117.0576^\circ$~kV \\
+\bottomrule
+\end{reftable}
+
+\begin{note}
+The check values printed in the statement for S3b at $A = 0$ contain two misprints. It
+gives $Z_{\text{Th7},1} = Z_{\text{Th7},2} = 0.0694 + j0.0356$, where S2b prints $0.0649 +
+j0.0356$ for the same quantity. And it gives $Z_{\text{Th7},0} = 0.1617 - j0.0656$, where
+the zero-sequence network seen from bus~7 is inductive: $0.1617 + j0.0656$. \app\ matches
+the MATLAB solution. The file \file{tools/refs/README.md} in the repository documents
+both.
+\end{note}
+
+\section{LF: the Newton--Raphson load flow}
+
+\file{examples/lf\_220kv.psn}: eight 220~kV buses on 100~MVA. G1 at bus~1 is the slack,
+an SVC at bus~3 holds 220~kV (a PU bus with $P = 0$), and G7 at bus~7 delivers 208.5~MW
+at 220~kV. The loads at buses 4, 6 and 8 are constant power, and the bus-5 shunt injects
+its rated $Q$ (the reading of the statement). The diagram on the title page of this
+manual is this project after case LFa.
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.3cm}X@{}}
+\toprule
+\sffamily\bfseries Task & \sffamily\bfseries Case (study) & \sffamily\bfseries Result at $A = 80$ \\ \midrule
+LFa: bus types and voltages & \code{LFa} (load flow) & Types Slack, PQ, PU, PQ, PQ,
+  PQ, PU, PQ; for example $U_2 = 0.9832\angle-13.3901^\circ$~pu \\
+LFb: slack generation and the PU buses' reactive power & \code{LFa} & $P_{G1} =
+  380.1658$~MW, $Q_{G1} = 28.8537$, $Q_{sh,3} = 46.6418$, $Q_{G7} = 28.9567$~MVAr \\
+LFc: total losses & \code{LFa} & $P_\text{loss} = 22.1658$~MW ($A=0$: $26.4240$~MW) \\
+LFd: $P_{LD4}$ up 10\,\% & \code{LFd} (override \code{LD4.p\_mw} = \code{1.1*value}) &
+  $P_\text{loss} = 24.3993$~MW, $P_{G1} = 399.0493$~MW \\
+The bus-5 shunt as a susceptance rated at 220~kV & \code{LFb\_rated} (shunt model
+  \code{constant\_b}) & $P_\text{loss} = 22.1662$~MW, $Q_{sh,3} = 46.5526$~MVAr,
+  $B_{sh,3} = 0.4655$~pu; the bank delivers 8.3648~MVAr at 1.0100~pu \\
+\bottomrule
+\end{reftable}
+
+The iteration log and the Jacobian at the flat start are at the bottom of each load-flow
+tab. The Jacobian can be copied as MATLAB.
+
+\section{From the assignments to your own networks}
+
+The projects are also templates. Copy one, change its data, and add cases. Drawing the
+S1 network from scratch is the tutorial of \cref{sec:tutorial-s1}. The same steps apply
+to any radial or meshed network: place buses and elements, set the bases, add the
+variables your data needs, create a case per question, and run.

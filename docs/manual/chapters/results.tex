@@ -1,0 +1,131 @@
+\chapter{Reading results}\label{ch:results}
+
+\section{The Results panel}
+
+Each case run gets a tab in the \gui{Results} panel, titled with the case's title. The
+last tab, \gui{Log}, holds the full text of every result, the validation messages and
+anything else worth keeping, all selectable and copyable. A result tab has three parts:
+
+\begin{description}
+  \item[Headline] the main answer in one or two lines, such as \emph{U\_th = 0.9348 pu <
+    -3.0196 deg   Z\_th,1 = 0.1645 + 0.0677i pu}.
+  \item[Warnings] in yellow banners: anything you should know, for example an element left
+    out, a zero sequence that could not be built, an override that names something gone,
+    or a load flow that did not converge. A case that could not run shows only its reason.
+  \item[Tables] the numbers, each with its title and sometimes a note below it.
+\end{description}
+
+\begin{figure}[H]
+  \centering\shot[0.86\linewidth]{results-loadflow.png}
+  \caption{The first result tab of the load flow example (top part).}
+\end{figure}
+
+\section{Number formats}
+
+\app\ prints numbers the way MATLAB's \code{format short} does, so they can be compared
+with a MATLAB solution digit by digit and pasted into a report:
+
+\begin{itemize}
+  \item four decimals in fixed point: \code{0.9832}, \code{22.1658};
+  \item scientific notation when a value is very large or very small: \code{3.6037e+03},
+    \code{1.2830e-05};
+  \item impedances, admittances and complex powers in rectangular form,
+    \code{0.1645 + 0.0677i}; voltages and currents in polar form with the angle in
+    degrees, \code{0.9952 pu < -0.5345 deg};
+  \item matrices with one common scale, as MATLAB prints them. When the largest entry
+    leaves the fixed-point window, the title carries the factor (\code{1.0e+02 *}) and the
+    entries are divided by it.
+\end{itemize}
+
+Units are always given: in the column header, after the value, or in the table's note.
+
+\section{Copying}
+
+\begin{itemize}
+  \item Select cells and press \keys{\ctrl + C} to copy them as tab-separated text, ready
+    for a spreadsheet.
+  \item Right-click a table for \gui{Copy}, the selection, or \gui{Copy table}, all of it
+    with its header row.
+  \item The headline can be selected with the mouse and copied.
+\end{itemize}
+
+\subsection{Copy as MATLAB}\label{sec:copy-matlab}
+
+A table that prints a matrix (an admittance matrix, the load-flow Jacobian, the S1a
+matrix $F$, the $Z_\text{ph}$ and $Z_s$ of an unbalanced load) offers \gui{Copy as
+MATLAB} in its context menu. It copies the matrix as MATLAB source with every digit kept,
+not the four decimals on screen. The two-port matrix of S1, for example, copies as:
+
+\begin{terminal}
+F = [1.0002045432793645 + 0.0004317301765735776i, 0.004880874748045769 + 0.27917704044800307i; ...
+     0.00369999999509357 - 0.0017535002966172987i, 1.0003032467164057 + 0.000592414161302107i];
+\end{terminal}
+
+Paste it into MATLAB and compare it with your own matrix to the last digit.
+
+\section{Annotating the diagram}\label{sec:annotations}
+
+Most studies can annotate the diagram with their result. After a run, the selected result
+tab's annotations are drawn next to the elements they describe:
+
+\begin{itemize}
+  \item bus annotations above the bus, in green;
+  \item branch annotations below the branch, beside it for a vertical branch, in brown;
+  \item element annotations, such as a generator's $P$ and $Q$, to the right of the
+    symbol;
+  \item values that call for attention, such as a faulted bus or a voltage outside
+    0.95--1.05~pu, in the warning colour.
+\end{itemize}
+
+Click another result tab and the diagram shows that result instead. \menu{View > Show
+results on the diagram} (\keys{\ctrl + R}) hides or shows the annotations. They follow
+their element when it moves, and they disappear when the model changes, because they no
+longer describe it. Each study's section in \cref{ch:studies} says what it draws. The
+model, sequence model, admittance matrix, S1a and S1b results are not drawn on the
+diagram.
+
+\begin{figure}[H]
+  \centering\shot[0.92\linewidth]{diagram-s3c.png}
+  \caption{A single line-to-ground fault at bus 7 of \file{grid\_industry.psn} (case
+    S3c). The faulted bus shows the fault current and its three phase voltages, the other
+    buses their phase voltages during the fault, and the branches their largest current.}
+\end{figure}
+
+\section{Colouring the diagram}\label{sec:colouring}
+
+\menu{View > Colour by} colours the diagram, with a legend in the top-right corner of the
+canvas:
+
+\begin{description}
+  \item[Nothing] every element in black.
+  \item[Voltage level] one colour per base voltage, highest first. Buses, the elements that
+    sit in one voltage zone and the wires that land on each bus take their zone's colour.
+    Transformers, which join two zones, stay black. The colours follow edits: a new
+    element is coloured as soon as it is connected.
+  \item[Voltage result] every bus coloured by the band its voltage magnitude falls in, for
+    the result tab shown: below 0.90, 0.90--0.95, 0.95--0.98, 0.98--1.02, 1.02--1.05 and
+    above 1.05~pu. During a fault, the lowest phase counts. A result without bus
+    voltages, such as an admittance matrix, leaves the buses black and says so in the
+    status bar.
+\end{description}
+
+\begin{figure}[H]
+  \centering
+  \begin{minipage}[t]{0.49\linewidth}
+    \centering\shot[\linewidth]{colour-level.png}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.49\linewidth}
+    \centering\shot[\linewidth]{colour-voltage.png}
+  \end{minipage}
+  \caption{Left: the S2 grid with the S1 industry coloured by voltage level (70, 40, 12
+    and 6~kV). Right: the load flow coloured by bus voltage. Bus~8, at 0.9661~pu, falls in
+    the 0.95--0.98 band.}
+\end{figure}
+
+\section{Validation messages}
+
+Before every run, \app\ validates the network. Errors stop the run and are listed in a
+message box and in the \gui{Log}. A component that is not wired does not stop the run:
+the studies leave it out, and every result says so in a warning, \emph{``LD9 is not
+connected to a bus, so the studies ignore it.''} \Cref{ch:troubleshooting} lists the
+messages with what to do.

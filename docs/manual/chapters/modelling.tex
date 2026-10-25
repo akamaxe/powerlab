@@ -1,0 +1,184 @@
+\chapter{Modelling reference}\label{app:modelling}
+
+This appendix collects the equations behind the studies, in the notation of the course.
+Everything is per unit on the bases of \cref{ch:bases} unless a unit is given.
+
+\section{Components in per unit}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.0cm}X@{}}
+\toprule
+\sffamily\bfseries Component & \sffamily\bfseries Model \\ \midrule
+Transformer & series $z = \dfrac{r + jx}{100}\,\dfrac{S_\text{base}}{S_n}
+  \left(\dfrac{U_n}{U_\text{base}}\right)^{2}$ on the side chosen in \gui{Refer Z to}; no
+  magnetising branch; ratio absorbed by the bases. \\[1.2em]
+Line ($n$ in parallel) & PI: $z = \dfrac{(r + jx)\,\ell}{n\,Z_\text{base}}$,
+  \quad $\dfrac{y_\text{sh}}{2} = \dfrac{n\,(g + jb_c)\,\ell}{2}\,Z_\text{base}$ at each
+  end. \\[1.2em]
+Load (constant $Z$) & $y = \dfrac{\conj{S}}{S_\text{base}}
+  \left(\dfrac{U_\text{base}}{U_n}\right)^{2}$, \quad $S = P + jQ$,
+  $Q = P\tan\varphi$ (lag) or $-P\tan\varphi$ (lead). \\[1.2em]
+Shunt (constant $B$) & $y = j\,\dfrac{Q}{S_\text{base}}
+  \left(\dfrac{U_\text{base}}{U_n}\right)^{2}$, capacitive for $Q > 0$. \\[1.2em]
+External grid & $E = U\angle\theta$ behind $Z_\text{th}$, with $|Z_\text{th}| =
+  \dfrac{U}{\sqrt3\,I_k}$ or $\dfrac{U^2}{S_k}$ and $\arg Z_\text{th} = \arccos(\cos\varphi)$;
+  $Z_2 = Z_1$; $Z_0 = \dfrac{3U}{\sqrt3\,I_{k1}}\angle\arccos(\cos\varphi_0) - 2Z_1$ (mode
+  \code{ik1}). \\[1.2em]
+Impedance & $z = (R + jX)/Z_\text{base}$ of the from-bus, or $R + jX$ in pu; the same in
+  every sequence. \\
+\bottomrule
+\end{reftable}
+
+\section{Zero-sequence paths}
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.0cm}X@{}}
+\toprule
+\sffamily\bfseries Element & \sffamily\bfseries Zero-sequence model \\ \midrule
+Line & PI from the \gui{Z0 data}: factors of $r$, $x$, $g$, $b_c$, or per-km values. \\
+Transformer YNyn & series $Z_0 + 3Z_{n,\text{HV}} + 3Z_{n,\text{LV}}$ \\
+Transformer YNd & $Z_0 + 3Z_{n,\text{HV}}$ from the HV bus to earth; LV side open \\
+Transformer Dyn & $Z_0 + 3Z_{n,\text{LV}}$ from the LV bus to earth; HV side open \\
+Other vector groups & open \\
+Load or shunt, Y0 & $y_0 = \dfrac{1}{1/y + 3Z_n}$ \\
+Load or shunt, Y or D & open \\
+External grid & behind $Z_0$, no source voltage; open when \gui{Z0 from} is \code{none} \\
+\bottomrule
+\end{reftable}
+
+$Z_0$ of a transformer comes from \gui{r0} and \gui{x0}, which default to $r$ and $x$.
+The negative sequence equals the positive one with the sources' voltages set to zero.
+Phase shifts are not modelled.
+
+\section{The admittance matrix}
+
+Every branch contributes a $2\times2$ admittance block between its buses $i$ and $j$. For a
+PI section with series $z$ and half-shunt $y_\text{sh}$:
+\[
+  \begin{bmatrix} I_i \\ I_j \end{bmatrix} =
+  \begin{bmatrix} \tfrac{1}{z} + y_\text{sh} & -\tfrac{1}{z} \\[0.3em]
+                  -\tfrac{1}{z} & \tfrac{1}{z} + y_\text{sh} \end{bmatrix}
+  \begin{bmatrix} U_i \\ U_j \end{bmatrix}.
+\]
+Shunt admittances add to the diagonal. A source behind $Z_\text{th}$ adds $1/Z_\text{th}$
+to its bus's diagonal (\code{grounded}), or a series branch $Z_\text{th}$ to an internal
+node (\code{internal\_node}). An ideal source is never an admittance; it fixes its bus
+voltage.
+
+\section{Linear solve, impedance matrix and Thevenin}
+
+With the buses split into those fixed by ideal sources ($f$) and the rest ($r$), and the
+Norton currents $I = E/Z_\text{th}$ of the other sources,
+\[
+  Y_{rr}\,U_r = I_r - Y_{rf}\,U_f .
+\]
+The impedance matrix of a sequence network is $Z = Y^{-1}$ with the ideal-source buses
+grounded. \app\ computes the columns it needs from one LU factorisation. A bus with no
+path to earth in a sequence has an infinite (open) impedance there. The Thevenin
+equivalent at bus $k$ is
+\[
+  U_\text{th} = U_k^\text{pre}, \qquad Z_{\text{th},s} = Z_s(k,k), \quad s = 1, 2, 0,
+\]
+and the short-circuit power is $S_{sc} = U_\text{th}\,\conj{I_{sc}}\,S_\text{base}$ with
+$I_{sc} = U_\text{th}/Z_{\text{th},1}$.
+
+\section{Faults and unbalanced loads}\label{sec:shunt-solver}
+
+A shunt condition at bus $k$ is three phase equations
+\[
+  A\,U_{abc} + B\,I_{abc} = 0,
+\]
+with $I_{abc}$ the currents drawn from the network. In the course's sequence order
+$(1, 2, 0)$,
+\[
+  U_{abc} = T\,U_s, \quad I_{abc} = T\,I_s, \qquad
+  T = \begin{bmatrix} 1 & 1 & 1 \\ a^2 & a & 1 \\ a & a^2 & 1 \end{bmatrix}, \quad
+  a = e^{j120^\circ},
+\]
+and each sequence network seen from $k$ is its Thevenin equivalent, $U_s = U_s^\text{pre}
+- Z_s I_s$ with $U^\text{pre}_s = (U_\text{th}, 0, 0)$. Substituting gives one $3\times3$
+system,
+\[
+  \left(B\,T - A\,T\,Z_s\right) I_s = -A\,T\,U_s^\text{pre}.
+\]
+A sequence in which the bus has no path to earth carries no current; its voltage becomes
+the unknown instead. The faults, with phase $a$ as the reference:
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}X%
+                    >{\centering\arraybackslash}p{2.4cm}>{\centering\arraybackslash}p{3.2cm}@{}}
+\toprule
+\sffamily\bfseries Fault & \sffamily\bfseries Conditions & \sffamily\bfseries $A$
+  & \sffamily\bfseries $B$ \\ \midrule
+Three-phase & $U_p = Z_f I_p$, \ $p = a, b, c$ & $\mathbf{I}$ & $-Z_f\,\mathbf{I}$ \\[0.6em]
+Line to ground & $U_a = Z_f I_a$, \ $I_b = I_c = 0$
+  & $\begin{bsmallmatrix} 1 & 0 & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 0 \end{bsmallmatrix}$
+  & $\begin{bsmallmatrix} -Z_f & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{bsmallmatrix}$ \\[0.9em]
+Line to line & $I_a = 0$, \ $I_b = -I_c$, \ $U_b - U_c = Z_f I_b$
+  & $\begin{bsmallmatrix} 0 & 0 & 0 \\ 0 & 0 & 0 \\ 0 & 1 & -1 \end{bsmallmatrix}$
+  & $\begin{bsmallmatrix} 1 & 0 & 0 \\ 0 & 1 & 1 \\ 0 & -Z_f & 0 \end{bsmallmatrix}$ \\[0.9em]
+Double line to ground & $I_a = 0$, \ $U_{b,c} = Z_f I_{b,c} + Z_g (I_b + I_c)$
+  & $\begin{bsmallmatrix} 0 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{bsmallmatrix}$
+  & $\begin{bsmallmatrix} 1 & 0 & 0 \\ 0 & -Z_f{-}Z_g & -Z_g \\ 0 & -Z_g & -Z_f{-}Z_g \end{bsmallmatrix}$
+  \\[0.9em]
+Unbalanced load & $I_{abc} = Y_\text{ph}\,U_{abc}$ & $Y_\text{ph}$ & $-\mathbf{I}$ \\
+\bottomrule
+\end{reftable}
+
+Here $\mathbf{I}$ is the $3\times3$ identity matrix.
+
+For a solid line-to-ground fault this reduces to $I_1 = I_2 = I_0 = U_\text{th}/(Z_1 + Z_2
++ Z_0 + 3Z_f)$. The voltages at the other buses follow from $U_s(i) = U^\text{pre}_s(i) -
+Z_s(i,k)\,I_s$.
+
+\paragraph{Phase admittance of a load.} With $y$ the balanced per-phase admittance and
+$f_a, f_b, f_c$ the phase factors: a grounded star gives $Y_\text{ph} =
+\operatorname{diag}(f_a y, f_b y, f_c y)$, or $(Z_\text{diag} + Z_n\mathbf{J})^{-1}$ with
+a neutral impedance, where $Z_\text{diag} = \operatorname{diag}(1/f_p y)$ and $\mathbf{J}$
+is the matrix of ones. An ungrounded star gives $\operatorname{diag}(y_p) - y_p y_p^T/\sum
+y_p$. A delta of branches $f_{ab}y/3$, $f_{bc}y/3$, $f_{ca}y/3$ gives the corresponding
+nodal matrix.
+
+\section{Newton--Raphson}\label{sec:nr}
+
+With $Y = G + jB$, $\theta_{kj} = \theta_k - \theta_j$ and $S_k = P_k + jQ_k = U_k
+\conj{\left(\sum_j Y_{kj}U_j\right)}$:
+\[
+  P_k = U_k \sum_j U_j\left(G_{kj}\cos\theta_{kj} + B_{kj}\sin\theta_{kj}\right),\qquad
+  Q_k = U_k \sum_j U_j\left(G_{kj}\sin\theta_{kj} - B_{kj}\cos\theta_{kj}\right).
+\]
+The Jacobian blocks, for $k \ne j$ and on the diagonal:
+\begin{align*}
+  H_{kj} &= U_kU_j\left(G_{kj}\sin\theta_{kj} - B_{kj}\cos\theta_{kj}\right), &
+  H_{kk} &= -Q_k - B_{kk}U_k^2,\\
+  N_{kj} &= U_kU_j\left(G_{kj}\cos\theta_{kj} + B_{kj}\sin\theta_{kj}\right), &
+  N_{kk} &= P_k + G_{kk}U_k^2,\\
+  J_{kj} &= -N_{kj}, &
+  J_{kk} &= P_k - G_{kk}U_k^2,\\
+  L_{kj} &= H_{kj}, &
+  L_{kk} &= Q_k - B_{kk}U_k^2.
+\end{align*}
+\app\ evaluates them all at once from the complex derivatives of $S = U\conj{(YU)}$, and
+the tests check them against finite differences and against these formulas. Rows of $H$
+and $N$ belong to the PU and PQ buses, rows of $J$ and $L$ to the PQ buses; columns of
+$H$ and $J$ to the angles of the PU and PQ buses, columns of $N$ and $L$ to the
+magnitudes of the PQ buses.
+
+\paragraph{Flows and losses.} The power into branch $ij$ at end $i$ is $S_{ij} =
+U_i\,\conj{I_{ij}}$ with $I_{ij}$ from the branch's $2\times2$ block. The branch losses are
+$S_{ij} + S_{ji}$, and $P_\text{loss}$ is the sum of their real parts. The balance
+$P_\text{gen} - P_\text{load} - P_\text{loss}$ closes at the solution.
+
+\section{Two-port matrices}
+
+\[
+  F_\text{series}(z) = \begin{bmatrix} 1 & z \\ 0 & 1 \end{bmatrix}, \quad
+  F_\text{shunt}(y) = \begin{bmatrix} 1 & 0 \\ y & 1 \end{bmatrix}, \quad
+  F_\pi = F_\text{shunt}(y_\text{sh})\,F_\text{series}(z)\,F_\text{shunt}(y_\text{sh}),
+\]
+cascaded in order along the path from port~1 to port~2. Parallel paths are merged into one
+equivalent section. From the Y-bus reduced onto the two ports,
+$\left[\begin{smallmatrix} Y_{11} & Y_{12} \\ Y_{21} & Y_{22}\end{smallmatrix}\right]$,
+\[
+  A = -\frac{Y_{22}}{Y_{21}}, \quad B = -\frac{1}{Y_{21}}, \quad
+  C = -\frac{\det Y}{Y_{21}}, \quad D = -\frac{Y_{11}}{Y_{21}},
+\]
+with $I_2$ counted as leaving port~2. The equivalent impedance with a termination
+$Z_\text{term}$ at port~2 is $(A Z_\text{term} + B)/(C Z_\text{term} + D)$.

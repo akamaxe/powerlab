@@ -1,0 +1,111 @@
+\chapter{Getting started}\label{ch:getting-started}
+
+\section{Requirements and installation}
+
+\app\ is a Python program. It needs:
+
+\begin{itemize}
+  \item Python 3.10 or later (it is tested with the Anaconda distribution, Python 3.12);
+  \item \textbf{PySide6} (Qt~6) for the window;
+  \item \textbf{numpy}, \textbf{scipy} and \textbf{networkx} for the engine.
+\end{itemize}
+
+Anaconda already ships numpy, scipy and networkx. PySide6 comes from pip:
+
+\begin{terminal}
+pip install PySide6 numpy scipy networkx
+\end{terminal}
+
+There is nothing to build. Get the repository (\cli{git clone} or a downloaded archive),
+open a terminal in its root folder, the one that holds \file{run\_gui.py}, and start the
+program from there. The console tools of \cref{ch:console} do not need PySide6.
+
+\begin{note}
+On Windows with Anaconda, Qt~6 can fail to load with \emph{``the specified procedure
+could not be found''}, because Anaconda ships its own ICU library and that one shadows the
+library Qt expects. \app\ works around it: the package \code{psa.gui} preloads the system
+ICU when it is imported. \file{run\_gui.py} already imports it first. If you write a
+script that uses PySide6 together with \app, import \code{psa.gui} before anything else
+from PySide6.
+\end{note}
+
+\section{Starting the program}
+
+\begin{terminal}
+python run_gui.py                   # an empty project
+python run_gui.py --example         # the validated Assignment S1 network (A = 80)
+python run_gui.py my_network.psn    # open a project
+\end{terminal}
+
+\begin{itemize}
+  \item \cli{--example} opens \file{examples/s1\_a80.psn} as an \emph{untitled copy}:
+    \keys{\ctrl + S} asks where to save it and never overwrites the example.
+    \menu{File > Load Assignment S1 example} does the same from inside the program.
+  \item If the file named on the command line does not exist or is damaged, \app\ still
+    starts, with an empty project, and tells you why it could not open the file.
+  \item If the project links a variable script (\cref{sec:script}), \app\ asks before it
+    runs the script. Opening a file never executes code by itself.
+  \item The list of recent files and the window layout are stored per user. On Windows
+    they live in the registry, under \file{HKCU\textbackslash Software\textbackslash
+    PowerLab\textbackslash PowerLab}.
+\end{itemize}
+
+\section{A first session in five minutes}\label{sec:first-session}
+
+This walk-through uses the load flow example that comes with \app, so you can see the
+whole cycle before drawing anything yourself.
+
+\begin{steps}
+  \item Start \app\ and open \file{examples/lf\_220kv.psn} with \menu{File > Open...}
+    (\keys{\ctrl + O}). The canvas shows eight 220~kV buses. The slack generator G1 is at
+    bus~1, an SVC at bus~3, generator G7 at bus~7, constant-power loads at buses 4, 6 and
+    8, and a capacitor at bus~5.
+  \item Look at the \gui{Study cases} panel on the right. The project holds three cases:
+    \gui{LFa-LFc) Load flow}, \gui{LFd)}, which raises one load by 10\,\%, and the
+    \gui{LF variant)} with the shunt rated as a susceptance.
+  \item Press \keys{F5} (\menu{Calculate > Run all cases}). Each case gets a tab in the
+    \gui{Results} panel at the bottom, and the diagram is annotated with the first one.
+    Every bus shows its voltage, angle and type, every line its power flow and losses,
+    and every generator its $P$ and $Q$.
+  \item Read the headline of the first tab: \emph{Converged in 4 iterations. P\_loss =
+    22.1658 MW}. Scroll down for the bus table, the generation table, the branch flows,
+    the power balance, the iteration log and the Jacobian.
+  \item Click the \gui{LFd)} tab. The annotations switch to that case: the losses rise to
+    24.3993~MW.
+  \item In the \gui{Variables} panel, double-click the \gui{Expression} cell of \code{A},
+    change \code{80.0} to \code{0} and press \keys{Enter}. The loads that depend on \code{A} change. The result
+    tabs are marked with an asterisk, and a banner over the canvas says that the results
+    are out of date. Press \keys{F5} again: the losses are now 26.4240~MW, the answer
+    printed in the assignment for $A=0$.
+  \item Try \menu{View > Colour by > Voltage result} to colour each bus by its voltage
+    band, and \menu{File > Export diagram...} to save the annotated drawing as a PNG, SVG
+    or PDF file.
+\end{steps}
+
+\begin{tip}
+\menu{Edit > Undo} (\keys{\ctrl + Z}) takes back the change of \code{A} too. Undo covers
+every change to the network, the layout, the variables, the bases and the study cases.
+\end{tip}
+
+\section{The example projects}
+
+The folder \file{examples/} holds one project per assignment. All of them are parametric
+in the variable \code{A}, the student's A-number, and are set to $A=80$. Set it to $0$ to
+reproduce the answers printed in the assignment statements.
+
+\begin{reftable}{@{}>{\raggedright\arraybackslash}p{3.8cm}X@{}}
+\toprule
+\sffamily\bfseries File & \sffamily\bfseries Contents \\ \midrule
+\file{s1\_a80.psn} & Assignment S1: a factory fed from a 40~kV grid through two
+  transformers and two cable sections. Cases for the per-unit model, S1a, S1b and S1c. \\
+\file{s2\_grid.psn} & Assignment S2 and S3a--S3c: the meshed 40~kV grid fed from 70~kV,
+  with its zero-sequence data. \\
+\file{grid\_industry.psn} & The S2 grid with the S1 industry connected at bus~7: cases
+  S2a--S2d and S3a--S3e. \\
+\file{lf\_220kv.psn} & Assignment LF: the eight-bus 220~kV network for the load flow,
+  with cases LFa--LFd and the constant-B variant. \\
+\bottomrule
+\end{reftable}
+
+\Cref{ch:assignments} walks through every task of these projects, with the case that
+answers it and the expected numbers.

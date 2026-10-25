@@ -1,0 +1,84 @@
+\chapter{Per-unit bases}\label{ch:bases}
+
+Every study works in per unit. \app\ follows the convention of the course:
+
+\begin{itemize}
+  \item one base power $S_\text{base}$ for the whole network;
+  \item one base voltage $U_\text{base}$ per voltage zone, the line-to-line voltage;
+  \item from those, at every bus,
+    \[
+      Z_\text{base} = \frac{U_\text{base}^2}{S_\text{base}}, \qquad
+      I_\text{base} = \frac{S_\text{base}}{\sqrt3\,U_\text{base}} .
+    \]
+\end{itemize}
+
+\section{Base settings}
+
+\begin{minipage}[t]{0.5\linewidth}
+\menu{Network > Base settings...} sets four values:
+
+\begin{description}
+  \item[Base power] $S_\text{base}$ in MVA.
+  \item[Frequency] in Hz, kept with the project.
+  \item[Base reference bus] the bus where you know the base voltage.
+  \item[Base voltage there] its $U_\text{base}$ in kV.
+\end{description}
+
+The change is one undoable step, and it makes the results stale.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.45\linewidth}\vspace{0pt}
+  \centering\shot[0.95\linewidth]{dialog-bases.png}
+\end{minipage}
+
+\section{How bases propagate}
+
+From the reference bus, \app\ walks through the network. Crossing a line or an impedance
+keeps the base. Crossing a transformer multiplies it by the transformer's \emph{rated}
+ratio, $U_{2n}/U_{1n}$ from HV to LV. For S1, 40~kV at bus~a becomes 12~kV beyond TI1
+(40/12~kV) and 6~kV beyond TI2 (12/6~kV). With bases in the rated ratio, a transformer in
+per unit is a plain series impedance: its ratio disappears into the base change.
+
+\begin{itemize}
+  \item \textbf{Bases follow the nameplate, not the switching state.} The walk crosses
+    every branch, in service or not, so taking a branch out of service does not strip a
+    bus of its base. A case that disconnects the industry still prints the industry's
+    buses with their bases.
+  \item \textbf{Pinned bases.} A value in a bus's \gui{Pinned U base} sets that bus's base
+    by hand and seeds the walk from there as well. Pin a base when a part of the network
+    hangs from the rest only through elements that do not carry a base, or to follow a
+    textbook that chooses bases other than the rated ratios.
+  \item \textbf{Voltage zones.} Buses with the same base form a zone. The
+    \gui{Per-unit model} study lists the zones and the bases of every bus
+    (\cref{sec:study-model}).
+\end{itemize}
+
+\section{When bases cannot be established}
+
+\begin{description}
+  \item[Conflict.] Around a loop of transformers whose ratios do not multiply to one, a
+    bus is reached twice with different bases. \app\ does not choose one silently. It
+    reports \emph{``Bus 'x' already has U\_base = 12 kV but is also reached with 12.6 kV
+    through 'T3'. Check the transformer ratios around this loop.''}, naming the bus and the
+    transformer, and the studies do not run until it is resolved. Fix the ratio, or pin
+    the base you want.
+  \item[Unreachable bus.] A bus that no path connects to the reference bus has no base:
+    \emph{``Bus 'x' cannot be reached from the base reference bus, so it has no per-unit
+    base.''} Connect it, pin its base, or take it out of service. A bus that only a
+    de-energized part of the network reaches is left out of the network studies with an
+    information message instead of an error.
+\end{description}
+
+\section{How each component uses the bases}
+
+\begin{itemize}
+  \item A transformer's impedance is converted on the base of the side chosen in its
+    \gui{Refer Z to} field, with the factor $(U_n/U_\text{base})^2$, which is 1 when the
+    bases follow the rated voltages.
+  \item Loads and shunts are rated at their own \gui{U nominal}. Their admittance carries
+    the factor $(U_\text{base}/U_n)^2$, shown in the per-unit table so it can be checked.
+  \item Lines, impedances in ohm and external grids use the base of their own bus. A line
+    must join two buses of the same zone.
+\end{itemize}
+
+The \gui{(Ub/Un)\textasciicircum2} column of the per-unit model shows every one of these
+factors.

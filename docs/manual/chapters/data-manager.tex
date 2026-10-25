@@ -1,0 +1,71 @@
+\chapter{The data manager}\label{ch:data-manager}
+
+The data manager shows every element of a type in one editable table, the way
+PowerFactory's data manager or a spreadsheet does. Use it to check the data of a whole
+network at a glance, or to change many elements without clicking each one on the canvas.
+
+\begin{figure}[H]
+  \centering\shot[\linewidth]{data-manager.png}
+  \caption{The lines of the load flow example in the data manager. The \gui{r0 / r}
+    column and the ones after it are greyed out: those fields only apply when \gui{Z0
+    data} is \code{factors}.}
+\end{figure}
+
+\section{Opening it}
+
+The data manager shares the bottom panel with \gui{Results}: click its tab, or use
+\menu{View > Data manager} (\keys{\ctrl + \shift + D}). The menu entry brings the panel
+forward on the type of the selected element.
+
+\section{The tables}
+
+There is one tab per component type, in library order, titled with the number of
+elements of that type: \gui{Bus (8)}, \gui{Line / Cable (9)}, \dots\ Each row is an
+element, in network order. The first column is its id, and the others are its fields,
+with the same labels and units as the property editor. Hover a column header to read the
+field's description.
+
+\begin{itemize}
+  \item \textbf{Greyed-out cells} belong to fields the element's mode does not use, such as
+    a load's \gui{cos phi} when it is given by $P$ and $Q$, or a line's zero-sequence
+    factors when its \gui{Z0 data} is \code{absolute}. They are still editable.
+  \item \textbf{Tinted cells} hold a value that comes from an expression (a binding).
+    Hover the cell to see the expression.
+  \item \textbf{Bus columns} show the bus's name.
+\end{itemize}
+
+\section{Editing}
+
+Double-click a cell, or select it and start typing. Cells take the same input as the
+property editor:
+
+\begin{description}
+  \item[Numbers and expressions] A number is stored as it is. An expression over the
+    project variables becomes a binding. An empty cell removes the binding, and makes
+    the value empty for fields that accept that, such as \gui{U nominal} or \gui{Q max}.
+  \item[Choices] are picked from a list.
+  \item[Check boxes] (\gui{In service}, \gui{Slack}, \dots) toggle with a click.
+  \item[Buses] are picked from the list of buses, or typed by name or id. Pick
+    \gui{(none)} to disconnect the terminal.
+\end{description}
+
+Every edit is one undoable step. The canvas and the property editor follow it at once,
+and the results become stale. An edit that is not valid, such as text in a numeric field,
+a negative length or a bus that does not exist, is refused. The reason appears in the
+status bar.
+
+\section{Sorting and filtering}
+
+\begin{itemize}
+  \item Click a column header to sort by that column; click it again to reverse the order.
+  \item Type in the \gui{Filter} box to keep the rows where any cell contains the text,
+    case aside: \code{L2} keeps L23, L27 and L28.
+\end{itemize}
+
+Sorting and filtering only change the view, never the network.
+
+\section{Finding an element on the diagram}
+
+Double-click an element's id to select it on the canvas, centre the diagram on it and
+show its properties. \menu{Edit > Find element...} (\keys{\ctrl + F}) does the same from
+anywhere (\cref{sec:find}).

@@ -1,0 +1,221 @@
+\chapter{Components}\label{ch:components}
+
+This chapter describes every component type: what it models, how \app\ turns it into per
+unit, which studies see it, and every one of its fields. The field tables are generated
+from the program's own definitions. Each table gives the label shown on screen and,
+below it, the field's name, which bindings, overrides and the data manager use. Fields
+that depend on a mode appear in the property editor only when they apply, and the tables
+say when.
+
+Three fields are common to all components and are not repeated in the text below:
+\gui{Name}, the label drawn on the diagram (the id stands in when it is empty), \gui{In
+service}, cleared to make every study ignore the element, and the read-only \gui{id}. The
+formulas of this chapter are collected, with the zero-sequence rules, in
+\cref{app:modelling}.
+
+\begin{note}
+\app\ uses one base power $S_\text{base}$ for the whole network and one base voltage
+$U_\text{base}$ per voltage zone (\cref{ch:bases}). ``Per unit'' below always means on
+those bases. The base impedance at a bus is $Z_\text{base} = U_\text{base}^2 /
+S_\text{base}$.
+\end{note}
+
+% ---------------------------------------------------------------------------
+\componentsection{Bus}{bus}{A node of the network: a busbar, or a junction drawn as a dot.}
+
+Buses are where everything connects. The \gui{Kind} only changes the drawing: a bar for a
+\code{busbar}, a dot for a \code{junction}. Every bus gets its base voltage by propagation
+from the base reference bus (\cref{ch:bases}). A value in \gui{Pinned U base} fixes the
+base of that bus by hand instead. It also seeds the propagation, and a pinned base that
+disagrees with a transformer ratio is reported as a conflict.
+
+\input{generated/fields-bus}
+
+% ---------------------------------------------------------------------------
+\componentsection{External grid}{source}{A voltage source behind a Thevenin impedance: the
+network beyond the boundary.}
+
+The external grid represents the system that feeds the network drawn. It is a voltage
+$E = U\angle\theta$ behind the impedance $Z_\text{th}$. Give the impedance in one of
+three ways (\gui{Impedance from}):
+
+\begin{description}
+  \item[\code{z\_ohm}] directly, in ohm, referred to the bus base. \code{0} makes an
+    \emph{ideal} voltage source.
+  \item[\code{ik}] from the three-phase fault current $I_k$ at the bus:
+    $|Z_\text{th}| = U / (\sqrt3\, I_k)$.
+  \item[\code{sk}] from the short-circuit power: $|Z_\text{th}| = U^2 / S_k$.
+\end{description}
+
+In the last two, $U = U_\text{pu}\cdot U_n$ with $U_n$ the \gui{U nominal} (the bus base
+when it is empty), and the angle of the impedance follows from the power factor of the
+fault: $R/|Z| = \cos\varphi$. The S2 grid, for instance, is 70~kV, 25~kA at
+$\cos\varphi = 0.15$, which gives $Z_\text{th} = 0.2425 + j1.5983\,\Omega$.
+
+How the studies see it:
+
+\begin{itemize}
+  \item \textbf{Linear solve, Thevenin, faults}: an ideal grid fixes its bus voltage. A
+    grid behind an impedance becomes a Norton pair, $1/Z_\text{th}$ to earth plus the
+    current $E/Z_\text{th}$. In the negative sequence it is $Z_\text{th}$ without a
+    source voltage.
+  \item \textbf{Admittance matrix}: depending on the study's \gui{Sources} option, the
+    grid is an extra internal node behind $Z_\text{th}$, a shunt $1/Z_\text{th}$ to earth,
+    or left out (\cref{sec:study-ybus}).
+  \item \textbf{Load flow}: with \gui{Slack} checked, the grid is the slack bus at its own
+    terminal, holding $U$ and $\theta$. Its impedance is short-circuit data and does not
+    enter the load flow.
+  \item \textbf{Zero sequence} (\gui{Z0 from}): \code{none}, an ungrounded system with no
+    zero-sequence path; \code{z0\_ohm}, $Z_0$ given in ohm; \code{ik1}, from the single
+    line-to-ground fault current, $Z_0 = 3U_\text{ph}/I_{k1}\angle\arccos(\cos\varphi_0) -
+    2Z_1$; or \code{z0\_z1}, a multiple of $Z_1$.
+\end{itemize}
+
+\input{generated/fields-source}
+
+% ---------------------------------------------------------------------------
+\componentsection{Generator}{generator}{A synchronous generator, for the load flow.}
+
+The generator exists for the load flow. Its \gui{Control} sets what it holds:
+
+\begin{description}
+  \item[\code{pv}] its active power \gui{P} and its bus voltage \gui{U set}: the bus becomes
+    a PU bus. \gui{Q min} and \gui{Q max} limit its reactive power when the load flow is
+    asked to enforce limits; empty means no limit.
+  \item[\code{slack}] the voltage \gui{U set} and its angle \gui{Angle}: the bus becomes
+    the slack bus, which balances the network.
+  \item[\code{pq}] a fixed \gui{P} and \gui{Q}: the bus stays a PQ bus.
+\end{description}
+
+The linear, Thevenin and fault studies do not see generators. They work with external
+grids, so give a network an external grid when you want those studies too. Several
+voltage-controlling devices on one bus (two generators, or a generator and an SVC) must
+ask for the same voltage, otherwise the load flow refuses to run. They share the bus's
+reactive power equally.
+
+\input{generated/fields-generator}
+
+% ---------------------------------------------------------------------------
+\componentsection{Transformer}{transformer}{A two-winding transformer: a series impedance,
+with the ratio absorbed by the base change.}
+
+The transformer is its short-circuit impedance, $r$ and $x$ in percent on its own rating.
+In per unit on the network bases,
+\[
+  z = \frac{r + jx}{100}\cdot\frac{S_\text{base}}{S_n}\cdot
+      \left(\frac{U_n}{U_\text{base}}\right)^2,
+\]
+where $U_n$ is the rated voltage of the side chosen in \gui{Refer Z to} and
+$U_\text{base}$ the base of the bus on that side. There is no magnetising branch. The
+turns ratio does not appear because the bases on its two sides are in the rated ratio
+(\cref{ch:bases}). When pinned bases make the two sides disagree, the per-unit table
+reports the value the other side would give.
+
+\begin{caution}
+\gui{Tap ratio} is stored with the project but not modelled yet: an off-nominal tap gives
+a warning, the transformer is treated as a plain series impedance, and the $\det F = 1$
+check of the two-port study no longer applies.
+\end{caution}
+
+\paragraph{Zero sequence.} The \gui{Vector group} decides the zero-sequence path, with the
+HV winding first: \code{YN} is a grounded star, \code{Y} an ungrounded star, \code{D} a
+delta. With $Z_0$ from \gui{x0} and \gui{r0} (equal to $x$ and $r$ when empty), and $Z_n$
+the neutral impedances, appearing as $3Z_n$:
+
+\begin{itemize}
+  \item \code{YNyn}: a series branch $Z_0 + 3Z_{n,\text{HV}} + 3Z_{n,\text{LV}}$;
+  \item \code{YNd}: $Z_0 + 3Z_{n,\text{HV}}$ from the HV bus to earth, the LV side open;
+  \item \code{Dyn}: $Z_0 + 3Z_{n,\text{LV}}$ from the LV bus to earth, the HV side open;
+  \item every other group: open in the zero sequence.
+\end{itemize}
+
+Phase shifts (Yd11, Dyn5\dots) are not modelled, as in the course.
+
+\input{generated/fields-transformer}
+
+% ---------------------------------------------------------------------------
+\componentsection{Line / Cable}{line}{A PI section, with $n$ identical lines in parallel.}
+
+A line is a PI equivalent built from its per-kilometre data and its length $\ell$. With
+$n$ lines in parallel,
+\[
+  z = \frac{(r + jx)\,\ell}{n\,Z_\text{base}}, \qquad
+  \frac{y_\text{sh}}{2} = \frac{n\,(g + jb_c)\,\ell}{2}\,Z_\text{base}
+  \quad\text{at each end.}
+\]
+\gui{b\_c} is the \emph{total} charging susceptance per kilometre of \emph{one} line. Half
+of it goes to each end of the PI. A line must join two buses with the same base voltage.
+Use a transformer to change voltage level.
+
+\paragraph{Zero sequence.} \gui{Z0 data} must be set before any zero-sequence study runs:
+\code{factors} multiplies $r$, $x$ (and $g$, $b_c$ by \gui{b0 / b}), and \code{absolute}
+gives $r_0$, $x_0$, $b_0$ per kilometre. While it is \code{unset}, the Thevenin study
+leaves the zero sequence out with a warning, and the studies that need it (single
+line-to-ground and double line-to-ground faults, unbalanced loads, the zero-sequence
+admittance matrix) refuse to run and name the line.
+
+\input{generated/fields-line}
+
+% ---------------------------------------------------------------------------
+\componentsection{Load}{load}{A load given by its power at a nominal voltage.}
+
+Give the load's power as \gui{P} with \gui{cos phi} and \gui{Power factor} (\code{lag}
+draws inductive reactive power, \code{lead} capacitive), or as \gui{P} and \gui{Q}
+directly (\gui{Given as} = \code{p\_q}, positive $Q$ inductive). Its \gui{Model} decides
+how the studies see it:
+
+\begin{description}
+  \item[\code{constant\_impedance}] the load is the admittance that draws its power at
+    \gui{U nominal} (the bus base when empty):
+    $y = \dfrac{\conj{S}}{S_\text{base}}\left(\dfrac{U_\text{base}}{U_n}\right)^2$.
+    A load quoted at 12~kV on a bus whose base is 12.6~kV therefore draws more than its
+    nominal power at 1~pu, as a real impedance load would.
+  \item[\code{constant\_power}] in the load flow, the load is a PQ injection that draws
+    exactly its power whatever the voltage. The linear, Thevenin and fault studies cannot
+    represent constant power: they keep the constant impedance and say so in a warning.
+\end{description}
+
+\paragraph{Zero sequence and unbalance.} \gui{Connection} \code{Y0} is a grounded star,
+whose zero-sequence admittance is $1/(1/y + 3Z_n)$. \code{Y} and \code{D} are open in the
+zero sequence. The unbalanced load study (\cref{sec:study-unbalanced}) uses the connection
+to build the load's phase admittance matrix.
+
+\input{generated/fields-load}
+
+% ---------------------------------------------------------------------------
+\componentsection{Shunt}{shunt}{A shunt capacitor ($Q>0$) or reactor ($Q<0$).}
+
+The shunt is rated by the reactive power $Q$ it delivers at \gui{U nominal}. Positive $Q$
+is capacitive, the same sign as line charging. Use a negative value for a reactor; the
+symbol then changes to a coil. As an admittance,
+$y = j\,\dfrac{Q}{S_\text{base}}\left(\dfrac{U_\text{base}}{U_n}\right)^2$.
+
+In the load flow, \gui{Model} chooses between \code{constant\_b}, the admittance above,
+which delivers $B\,U^2$, and \code{constant\_q}, an injection of $Q$ whatever the voltage.
+The two readings are the base case and the variant of Assignment LF. Every other study
+uses the admittance. \gui{Connection} works as for loads.
+
+\input{generated/fields-shunt}
+
+% ---------------------------------------------------------------------------
+\componentsection{SVC}{svc}{A voltage-controlled shunt: a static var compensator or a
+synchronous condenser.}
+
+In the load flow, the SVC holds its bus at \gui{U set} with whatever reactive power that
+takes, so its bus is a PU bus with $P = 0$. The results report that $Q$, and the
+susceptance it amounts to, $B = Q/U^2$, in per unit and in siemens. This is how
+Assignment LF sizes the controllable shunt at bus~3. \gui{Q min} and \gui{Q max} limit it
+when the load flow enforces limits. The other studies do not see the SVC.
+
+\input{generated/fields-svc}
+
+% ---------------------------------------------------------------------------
+\componentsection{Impedance}{impedance}{A raw $R + jX$, in series between two buses or to
+earth.}
+
+A plain impedance, for whatever the other components do not cover: a series reactor, a
+fault path, an equivalent. Give $R$ and $X$ in ohm, referred to the base of the
+\gui{From bus}, or check \gui{Values in pu}. With \gui{To bus} empty, the impedance goes
+from its bus to earth. It is the same in every sequence.
+
+\input{generated/fields-impedance}

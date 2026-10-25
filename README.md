@@ -22,6 +22,11 @@ built it, phase by phase, and what is left for later are in [`docs/ROADMAP.md`](
 [Solving the EG2100 assignments with PowerLab](#solving-the-eg2100-assignments-with-powerlab)
 shows where each task's answer is.
 
+**User manual:** [`docs/manual/PowerLab_User_Manual.pdf`](docs/manual/PowerLab_User_Manual.pdf)
+covers every function in detail: the window, drawing, every component and field, bases, variables,
+study cases, each study with its equations, results, the data manager, export, the command line,
+the assignments task by task, the project file and troubleshooting.
+
 ## Installation and startup
 
 **Requirements:** Python (tested with Anaconda's 3.12.13; 3.10 or later should work),
@@ -452,7 +457,7 @@ the diagram. No GUI code has to change.
 ## Verification
 
 ```
-python -m pytest                              # 263 tests, a few seconds, the GUI runs offscreen
+python -m pytest                              # 270 tests, a few seconds, the GUI runs offscreen
 python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
@@ -466,7 +471,8 @@ python run_s1_headless.py --a-number 0        # the answer published in the assi
 | `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 90 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup, load flow in the window, export, data manager, find, colouring |
+| `test_gui.py` | 92 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup, load flow in the window, export, data manager, find, colouring |
+| `test_manual.py` | 4 | The user manual's generated reference tables match the code; every component and study has its table; every figure exists |
 | `test_export_and_cli.py` | 14 | Text, CSV, LaTeX, JSON and MATLAB export (every digit kept); `run_headless.py` on every case of every example, variables, export, exit codes |
 | `test_s2.py` | 10 | S2a-S2d from the example projects against the MATLAB solution, A = 80 and A = 0; the external grid from its fault level |
 | `test_s3.py` | 18 | S3a-S3e from the example projects against the MATLAB solution, A = 80 and A = 0; closed-form fault currents; zero-sequence element models |

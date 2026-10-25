@@ -23,6 +23,7 @@ python run_gui.py --example                        # GUI with the validated S1 n
 python run_headless.py examples/lf_220kv.psn [--case ID] [--study KEY] [--set A=0] [--export out.json]
 python run_s1_headless.py [project.psn] [--study KEY] [--a-number N]   # the S1 report
 PSA_ORACLES=1 python -m pytest tests/test_lf.py -k pandapower   # opt-in: pandapower takes ~15 s to import
+python tools/make_manual.py --all                  # user manual: tables, screenshots, PDF
 ```
 
 Regenerating the MATLAB reference fixtures needs the coursework folder and MATLAB; see
@@ -30,6 +31,13 @@ Regenerating the MATLAB reference fixtures needs the coursework folder and MATLA
 (`examples/s2_grid.psn`, `examples/grid_industry.psn`, `examples/lf_220kv.psn`) from
 `psa.core.examples.example_projects()`;
 `tests/test_s2.py` fails when a file is out of date. `examples/s1_a80.psn` is hand-made.
+
+The user manual (`docs/manual/`, see its README) is LaTeX: hand-written chapters, plus reference
+tables generated from every component's `FIELDS` and every study's `option_fields`, and
+screenshots taken from the example projects, both by `tools/make_manual.py`.
+`tests/test_manual.py` fails when the tables are stale, so a change to a field or an option needs
+`python tools/make_manual.py` (and a GUI change `--figures`); rebuild and commit
+`PowerLab_User_Manual.pdf` with `--pdf` when the manual changes.
 
 ## Architecture
 
@@ -181,6 +189,8 @@ badges all follow from it.
 - `tests/test_lf.py` runs the LF cases of `examples/lf_220kv.psn` against `LF` and `LF_q_rated`
   at `rtol=1e-8`, checks the Jacobian against finite differences, and cross-checks pandapower
   when `PSA_ORACLES=1`.
+- `tests/test_manual.py` keeps the manual's generated tables, table list and figures in step
+  with the code.
 - `tests/fixtures/s1_a80_v1.psn`: a version 1 project, for the migration test.
 - `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor, and
   `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`
