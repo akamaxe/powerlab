@@ -123,19 +123,25 @@ def build_s2(a_number: float = 80.0) -> Network:
     for n in range(1, 9):
         net.add(Bus(f"b{n}", name=str(n)))
     net.add(ExternalGrid("GRID", bus="b1", name="Grid 70 kV", u_pu=1.0,
-                         z_mode="ik", ik_ka=25.0, cos_phi=0.15, un_kv=70.0))
+                         z_mode="ik", ik_ka=25.0, cos_phi=0.15, un_kv=70.0,
+                         z0_mode="ik1", ik1_ka=13.0, cos_phi0=0.15))
     net.add(Transformer("T1", bus_hv="b1", bus_lv="b2", name="T1",
                         sn_mva=81.5, u1n_kv=70.0, u2n_kv=40.0, x_pct=8.0))
-    line = dict(r_ohm_per_km=0.8, x_ohm_per_km=0.3, b_s_per_km=3e-6)
+    # S3: grid lines have r0 = 2.5 r, x0 = 2 x and b0 = 0.5 b.
+    line = dict(r_ohm_per_km=0.8, x_ohm_per_km=0.3, b_s_per_km=3e-6,
+                z0_mode="factors", r0_factor=2.5, x0_factor=2.0, b0_factor=0.5)
     for i, j, length in S2_LINES:
         net.add(Line(f"L{i}{j}", bus_from=f"b{i}", bus_to=f"b{j}", name=f"L{i}{j}",
                      length_km=_eval_a(length, a), **line))
+    # S3 connections: LD6 and the bus-3 shunt are delta, the rest grounded star.
     for bus, p_mw, pf in S2_LOADS:
         net.add(Load(f"LD{bus}", bus=f"b{bus}", name=f"LD-bus{bus}",
-                     p_mw=_eval_a(p_mw, a), cos_phi=pf, u_nominal_kv=40.0))
+                     p_mw=_eval_a(p_mw, a), cos_phi=pf, u_nominal_kv=40.0,
+                     connection="D" if bus == 6 else "Y0"))
     for bus in (3, 5):
         net.add(Shunt(f"SH{bus}", bus=f"b{bus}", name=f"Shunt-bus{bus}",
-                      q_mvar=2.0, u_nominal_kv=40.0))
+                      q_mvar=2.0, u_nominal_kv=40.0,
+                      connection="D" if bus == 3 else "Y0"))
     return net
 
 
@@ -165,7 +171,11 @@ def build_grid_industry(a_number: float = 80.0) -> Network:
             continue
         if getattr(comp, "bus_hv", None) == "bus_a":
             comp.bus_hv = "b7"
+        if comp.TYPE == "line":                  # S3: cables Z0 = 3 Z1, y0 = 0.5 y1
+            comp.z0_mode = "factors"
+            comp.r0_factor, comp.x0_factor, comp.b0_factor = 3.0, 3.0, 0.5
         net.add(comp)
+    net.get("TI2").vector_group = "Dyn"          # S3: TI2 is delta-grounded star
     return net
 
 
@@ -229,6 +239,19 @@ def s2_cases(exclude: tuple[str, ...] = ()) -> list[Case]:
     ]
 
 
+def s3_cases(exclude: tuple[str, ...] = ()) -> list[Case]:
+    """S3a-S3c, with ``exclude`` taking the industry out where it is connected."""
+    ex = list(exclude)
+    return [
+        Case("S3a", "ybus", "S3a) Zero-sequence admittance matrix",
+             {"sequence": "zero", "sources": "grounded"}, exclude=ex),
+        Case("S3b", "thevenin", "S3b) Sequence Thevenin equivalents at bus 7",
+             {"bus": "b7"}, exclude=ex),
+        Case("S3c", "short_circuit", "S3c) Single line-to-ground fault at bus 7",
+             {"bus": "b7", "kind": "slg", "zf_ohm": 0j, "zg_ohm": 0j}, exclude=ex),
+    ]
+
+
 def example_projects(a_number: float = 80.0) -> dict:
     """The example projects, by file name: ``{name: Project}``."""
     from .params import Parameters
@@ -238,7 +261,7 @@ def example_projects(a_number: float = 80.0) -> dict:
     pv, b = s2_parameter_bindings(a)
     s2 = Project(
         network=build_s2(a), params=Parameters(project_vars=pv, bindings=b),
-        layout=s2_layout(), cases=s2_cases(),
+        layout=s2_layout(), cases=s2_cases() + s3_cases(),
         meta={"title": f"EG2100 Assignment S2, A = {a:g}",
               "notes": "Meshed 40 kV grid fed from 70 kV. Reference answers (A = 80): "
                        "U_Th7 = 0.9348 < -3.0196 pu, Z_Th7 = 0.1645 + 0.0677i pu, "
@@ -251,9 +274,18 @@ def example_projects(a_number: float = 80.0) -> dict:
         cases=s2_cases(exclude=("TI1",)) + [
             Case("S2d", "linear", "S2d) Industry voltages with LDe at 50 %",
                  {"bus": "bus_e"}, overrides={"LDe.p_mw": "0.5*value"}),
+        ] + s3_cases(exclude=("TI1",)) + [
+            Case("S3d", "thevenin", "S3d) Sequence Thevenin equivalents at bus e",
+                 {"bus": "bus_e"}, exclude=["LDe"]),
+            Case("S3e", "unbalanced_load",
+                 "S3e) Bus 7 voltages, half of phase a of LDe disconnected",
+                 {"element": "LDe", "factor_a": 0.5, "factor_b": 1.0, "factor_c": 1.0,
+                  "bus": "b7"}),
         ],
         meta={"title": f"EG2100 Assignments S2 and S3, grid and industry, A = {a:g}",
               "notes": "The S2 grid with the S1 industry connected at bus 7. Cases "
-                       "S2a-S2c take TI1 out of service (industry disconnected). "
-                       "S2d reference (A = 80): U_LDe = 0.9289 < -3.2857 pu = 5.5734 kV."})
+                       "S2a-S2c and S3a-S3c take TI1 out of service (industry "
+                       "disconnected). References (A = 80): S2d U_LDe = 0.9289 < "
+                       "-3.2857 pu = 5.5734 kV; S3c I_f = 0.5214 kA; S3e U7 = 21.4825, "
+                       "21.4474, 21.4503 kV."})
     return {"s2_grid.psn": s2, "grid_industry.psn": gi}

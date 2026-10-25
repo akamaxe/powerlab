@@ -88,7 +88,15 @@
         "sk_mva": 0.0,
         "cos_phi": 0.15,
         "un_kv": 70.0,
-        "is_slack": true
+        "is_slack": true,
+        "z0_mode": "ik1",
+        "z0_ohm": [
+          0.0,
+          0.0
+        ],
+        "ik1_ka": 13.0,
+        "cos_phi0": 0.15,
+        "z0_z1": 1.0
       },
       {
         "type": "transformer",
@@ -103,7 +111,18 @@
         "x_pct": 8.0,
         "r_pct": 0.0,
         "tap": 1.0,
-        "referred_side": "lv"
+        "referred_side": "lv",
+        "vector_group": "YNyn",
+        "zn_hv_ohm": [
+          0.0,
+          0.0
+        ],
+        "zn_lv_ohm": [
+          0.0,
+          0.0
+        ],
+        "x0_pct": null,
+        "r0_pct": null
       },
       {
         "type": "line",
@@ -117,7 +136,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 68.5,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -131,7 +157,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 47.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -145,7 +178,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 63.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -159,7 +199,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 36.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -173,7 +220,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 55.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -187,7 +241,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 65.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -201,7 +262,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 28.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "line",
@@ -215,7 +283,14 @@
         "b_s_per_km": 3e-06,
         "g_s_per_km": 0.0,
         "length_km": 65.0,
-        "n_parallel": 1
+        "n_parallel": 1,
+        "z0_mode": "factors",
+        "r0_factor": 2.5,
+        "x0_factor": 2.0,
+        "b0_factor": 0.5,
+        "r0_ohm_per_km": 0.0,
+        "x0_ohm_per_km": 0.0,
+        "b0_s_per_km": 0.0
       },
       {
         "type": "load",
@@ -227,7 +302,12 @@
         "cos_phi": 0.95,
         "pf_sign": "lag",
         "u_nominal_kv": 40.0,
-        "model": "constant_impedance"
+        "model": "constant_impedance",
+        "connection": "Y0",
+        "zn_ohm": [
+          0.0,
+          0.0
+        ]
       },
       {
         "type": "load",
@@ -239,7 +319,12 @@
         "cos_phi": 0.98,
         "pf_sign": "lag",
         "u_nominal_kv": 40.0,
-        "model": "constant_impedance"
+        "model": "constant_impedance",
+        "connection": "D",
+        "zn_ohm": [
+          0.0,
+          0.0
+        ]
       },
       {
         "type": "load",
@@ -251,7 +336,12 @@
         "cos_phi": 0.95,
         "pf_sign": "lag",
         "u_nominal_kv": 40.0,
-        "model": "constant_impedance"
+        "model": "constant_impedance",
+        "connection": "Y0",
+        "zn_ohm": [
+          0.0,
+          0.0
+        ]
       },
       {
         "type": "shunt",
@@ -260,7 +350,8 @@
         "name": "Shunt-bus3",
         "in_service": true,
         "q_mvar": 2.0,
-        "u_nominal_kv": 40.0
+        "u_nominal_kv": 40.0,
+        "connection": "D"
       },
       {
         "type": "shunt",
@@ -269,7 +360,8 @@
         "name": "Shunt-bus5",
         "in_service": true,
         "q_mvar": 2.0,
-        "u_nominal_kv": 40.0
+        "u_nominal_kv": 40.0,
+        "connection": "Y0"
       }
     ]
   },
@@ -464,6 +556,40 @@
         "bus": "b7",
         "kind": "3ph",
         "zf_ohm": {
+          "re": 0.0,
+          "im": 0.0
+        }
+      }
+    },
+    {
+      "id": "S3a",
+      "study": "ybus",
+      "title": "S3a) Zero-sequence admittance matrix",
+      "options": {
+        "sequence": "zero",
+        "sources": "grounded"
+      }
+    },
+    {
+      "id": "S3b",
+      "study": "thevenin",
+      "title": "S3b) Sequence Thevenin equivalents at bus 7",
+      "options": {
+        "bus": "b7"
+      }
+    },
+    {
+      "id": "S3c",
+      "study": "short_circuit",
+      "title": "S3c) Single line-to-ground fault at bus 7",
+      "options": {
+        "bus": "b7",
+        "kind": "slg",
+        "zf_ohm": {
+          "re": 0.0,
+          "im": 0.0
+        },
+        "zg_ohm": {
           "re": 0.0,
           "im": 0.0
         }

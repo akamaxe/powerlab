@@ -1,11 +1,27 @@
 """Solvers that work on sequence networks: nodal solve, Z-bus, Thevenin, faults."""
 
-from .faults import FAULT_KINDS, FaultResult, solve_fault
+from .faults import FaultResult, solve_fault
 from .linear import BranchCurrents, NodalSolution, solve_nodal
+from .shunt import (
+    FAULT_KINDS,
+    SEQS,
+    SequenceNetworks,
+    SequenceThevenin,
+    ShuntConditionResult,
+    fault_constraints,
+    phase_admittance,
+    sequence_thevenin,
+    solve_shunt_condition,
+    to_phases,
+    to_sequences,
+)
 from .thevenin import TheveninEquivalent, thevenin_at
 from .zbus import ZBus
 
 __all__ = [
-    "BranchCurrents", "FAULT_KINDS", "FaultResult", "NodalSolution",
-    "TheveninEquivalent", "ZBus", "solve_fault", "solve_nodal", "thevenin_at",
+    "BranchCurrents", "FAULT_KINDS", "FaultResult", "NodalSolution", "SEQS",
+    "SequenceNetworks", "SequenceThevenin", "ShuntConditionResult",
+    "TheveninEquivalent", "ZBus", "fault_constraints", "phase_admittance",
+    "sequence_thevenin", "solve_fault", "solve_nodal", "solve_shunt_condition",
+    "thevenin_at", "to_phases", "to_sequences",
 ]
