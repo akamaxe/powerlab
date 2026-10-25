@@ -1,4 +1,4 @@
-"""Network studies: equivalent impedance, nodal voltage solve, Thevenin."""
+"""The S1 analyses on the per-unit view: equivalent impedance and the nodal voltage solve."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .components import display_name
 from .errors import TopologyError, ValidationError
 from .network import Network
 from .perunit import PuModel, to_per_unit
-from .twoport import TwoPortResult, two_port
+from .twoport import two_port
 from .ybus import build_ybus, kron_reduce
 
 #: Tolerances for the Kron / two-port agreement on the equivalent impedance.
@@ -163,142 +163,44 @@ def solve_voltages(net: Network, pu: PuModel | None = None) -> LoadFlowResult:
 
     Ideal sources fix their bus voltage exactly; sources behind a Thevenin
     impedance become a Norton pair (a shunt plus a current injection). With
-    constant-impedance loads the problem is linear, so one solve is exact.
+    constant-impedance loads the problem is linear, so one solve is exact. The
+    solve itself is :func:`~psa.core.solve.solve_nodal`, the one the network
+    studies use; this adds the S1 presentation (kV, injections, branch flows).
     """
+    from .solve.linear import solve_nodal
+
     pu = pu or to_per_unit(net)
+    sm = pu.sm if pu.sm is not None else to_per_unit(net).sm
     if not pu.sources:
         raise TopologyError(
             "There is no source in the network, so the bus voltages are not "
-            "defined. Add a Source component (typically at the feeding bus).")
-
-    ideal = [s for s in pu.sources if s.is_ideal]
-    if not ideal and not any(s.is_slack for s in pu.sources):
+            "defined. Add an external grid (typically at the feeding bus).")
+    if not any(s.is_ideal or s.is_slack for s in pu.sources):
         raise TopologyError("No slack source: the voltage angle reference is undefined.")
 
-    Y, index = build_ybus(pu, include_sources=True)
-    labels = list(index.keys())
-    n = len(labels)
-
-    u = np.zeros(n, dtype=complex)
-    slack_idx = []
-    for src in ideal:
-        i = index[src.bus]
-        u[i] = src.u_pu
-        if i not in slack_idx:
-            slack_idx.append(i)
-
-    # Norton injections from non-ideal sources.
-    inj = np.zeros(n, dtype=complex)
-    for src in pu.sources:
-        if not src.is_ideal:
-            inj[index[src.bus]] += src.u_pu / src.z_th_pu
-
-    rest = [i for i in range(n) if i not in set(slack_idx)]
-    if slack_idx:
-        rhs = inj[rest] - Y[np.ix_(rest, slack_idx)] @ u[slack_idx]
-    else:
-        rhs = inj[rest]
-
-    if rest:
-        Yrr = Y[np.ix_(rest, rest)]
-        cond = np.linalg.cond(Yrr)
-        if not np.isfinite(cond) or cond > 1e14:
-            raise TopologyError(
-                "The network cannot be solved: some buses are floating (no "
-                "path to ground and no source).")
-        u[rest] = np.linalg.solve(Yrr, rhs)
-
+    sol = solve_nodal(sm)
+    Y, index = sm.ybus("grounded")
+    u = np.array([sol.u[b] for b in index])
     i_inject = Y @ u
 
-    result = LoadFlowResult(s_base_mva=pu.s_base,
-                            slack_buses=[labels[i] for i in slack_idx])
+    slack: list[str] = []
+    for src in pu.sources:
+        if src.is_ideal and src.bus not in slack:
+            slack.append(src.bus)
+    result = LoadFlowResult(s_base_mva=pu.s_base, slack_buses=slack)
     for bus_id, k in index.items():
         result.u_pu[bus_id] = complex(u[k])
         result.u_kv[bus_id] = abs(u[k]) * pu.bases.u(bus_id)
         result.i_inject_pu[bus_id] = complex(i_inject[k])
 
-    for br in pu.series:
-        if br.bus_i not in index or br.bus_j not in index:
-            continue
-        ui, uj = u[index[br.bus_i]], u[index[br.bus_j]]
-        y = 1.0 / br.z_pu
-        i_from = (ui - uj) * y + ui * br.ysh_pu
-        i_to = (uj - ui) * y + uj * br.ysh_pu
-        comp = net.components[br.comp_id]
+    for br in sol.branch_currents():
         result.branch[br.comp_id] = BranchFlow(
-            comp_id=br.comp_id, name=display_name(comp),
-            bus_from=br.bus_i, bus_to=br.bus_j,
-            i_from_pu=complex(i_from), i_to_pu=complex(i_to),
-            s_from_pu=complex(ui * np.conj(i_from)),
-            s_to_pu=complex(uj * np.conj(i_to)),
-        )
+            comp_id=br.comp_id, name=display_name(net.components[br.comp_id]),
+            bus_from=br.bus_i, bus_to=br.bus_j, i_from_pu=br.i_i, i_to_pu=br.i_j,
+            s_from_pu=br.s_i, s_to_pu=br.s_j)
 
-    # Current delivered by each source, and the power it supplies.
     for src in pu.sources:
-        k = index[src.bus]
-        if src.is_ideal:
-            # Everything injected at the bus comes from the source.
-            i_src = complex(i_inject[k])
-        else:
-            i_src = complex((src.u_pu - u[k]) / src.z_th_pu)
+        i_src = sol.i_source[src.comp_id]
         result.i_source_pu[src.comp_id] = i_src
-        result.s_source_mva[src.comp_id] = complex(
-            u[k] * np.conj(i_src)) * pu.s_base
-
+        result.s_source_mva[src.comp_id] = sol.u[src.bus] * i_src.conjugate() * pu.s_base
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Thevenin equivalent (foundation for S2)
-# --------------------------------------------------------------------------- #
-
-
-@dataclass
-class TheveninResult:
-    bus: str
-    u_th_pu: complex
-    z_th_pu: complex
-    z_base_ohm: float
-    u_base_kv: float
-
-    @property
-    def z_th_ohm(self) -> complex:
-        return self.z_th_pu * self.z_base_ohm
-
-    @property
-    def short_circuit_current_pu(self) -> complex:
-        return self.u_th_pu / self.z_th_pu
-
-
-def thevenin(net: Network, bus: str, pu: PuModel | None = None) -> TheveninResult:
-    """Thevenin equivalent seen from ``bus``.
-
-    ``U_th`` is the open-circuit voltage from the nodal solve; ``Z_th`` is the
-    equivalent impedance with the ideal sources shorted (their bus becomes the
-    reference) and the Thevenin sources reduced to their impedance.
-
-    Not exposed by the S1 menu yet; it is the entry point for S2.
-    """
-    pu = pu or to_per_unit(net)
-    lf = solve_voltages(net, pu)
-    u_th = lf.u_pu[bus]
-
-    Y, index = build_ybus(pu, include_sources=True)
-    labels = list(index.keys())
-    grounded = [index[s.bus] for s in pu.sources if s.is_ideal]
-    if index[bus] in grounded:
-        raise TopologyError(
-            f"Bus '{bus}' holds an ideal source, so its Thevenin impedance is "
-            f"zero by construction. Remove the source or give it a finite "
-            f"Thevenin impedance.", [bus])
-
-    keep = [i for i in range(len(labels)) if i not in set(grounded)]
-    Yg = Y[np.ix_(keep, keep)]
-    sub_labels = [labels[i] for i in keep]
-    pos = sub_labels.index(bus)
-    Yr = kron_reduce(Yg, [pos], labels=sub_labels)
-    z_th = 1.0 / complex(Yr[0, 0])
-
-    return TheveninResult(
-        bus=bus, u_th_pu=u_th, z_th_pu=z_th,
-        z_base_ohm=pu.bases.z(bus), u_base_kv=pu.bases.u(bus))

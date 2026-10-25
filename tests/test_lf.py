@@ -218,7 +218,7 @@ class PandapowerCrossCheck(unittest.TestCase):
         if os.environ.get("PSA_ORACLES") != "1":
             self.skipTest("set PSA_ORACLES=1 to run the pandapower cross-check")
         try:
-            import pandapower  # noqa: F401
+            import pandapower  # noqa: F401 - only checks it imports
         except Exception as exc:  # noqa: BLE001 - any import failure means skip
             self.skipTest(f"pandapower unavailable: {exc}")
 

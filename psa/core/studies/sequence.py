@@ -23,7 +23,7 @@ from ..present import matrix_table
 from ..results import Annotation, LabeledMatrix, Quantity, Result, Table
 from ..solve import SEQS, SequenceNetworks, phase_admittance, solve_shunt_condition, to_phases
 from ..study import OptionSpec, Study, StudyContext, register
-from ..units import fmt_polar, fmt_real, fmt_rect, polar_pair
+from ..units import fmt_polar, fmt_real, fmt_rect
 from .grid import PHASES, SEQ_INDEX, SEQ_NAME, _bus_label
 
 T_LABELS = ["1", "2", "0"]

@@ -1,9 +1,10 @@
-"""Assignment S2 groundwork: the Thevenin equivalent of the meshed 40 kV grid.
+"""The S2b Thevenin equivalent on a network built by hand, independent of the examples.
 
-No S2 study is registered yet, but :func:`psa.core.analysis.thevenin` already
-carries S2b. These tests pin it against two independent references: the answer
-printed in the assignment for A = 0, and the MATLAB solution for A = 80
-(``Assignment2/latex/S2_output.txt``).
+The grid here is a source behind ``Z_th`` in ohm (not an external grid given by
+its fault level, as in ``examples/s2_grid.psn``), so this pins
+:func:`psa.core.solve.thevenin_at` against two independent references through
+another construction: the answer printed in the assignment for A = 0, and the
+MATLAB solution for A = 80 (``Assignment2/latex/S2_output.txt``).
 """
 
 from __future__ import annotations
@@ -12,9 +13,10 @@ import cmath
 import math
 import unittest
 
-from psa.core.analysis import thevenin
 from psa.core.components import Bus, Line, Load, Shunt, Source, Transformer
+from psa.core.model import ModelOptions, build_model
 from psa.core.network import Network
+from psa.core.solve import thevenin_at
 
 
 def build_s2(a_number: float) -> Network:
@@ -51,12 +53,13 @@ def build_s2(a_number: float) -> Network:
 
 class TheveninAtBus7(unittest.TestCase):
     def _check(self, a_number, u_mag, u_deg, z_th):
-        th = thevenin(build_s2(a_number), "b7")
-        mag, ang = cmath.polar(th.u_th_pu)
+        model = build_model(build_s2(a_number), ModelOptions(energized_only=True))
+        th = thevenin_at(model, "b7")
+        mag, ang = cmath.polar(th.u_th)
         self.assertAlmostEqual(mag, u_mag, places=4)
         self.assertAlmostEqual(math.degrees(ang), u_deg, places=4)
-        self.assertAlmostEqual(th.z_th_pu.real, z_th.real, places=4)
-        self.assertAlmostEqual(th.z_th_pu.imag, z_th.imag, places=4)
+        self.assertAlmostEqual(th.z_th.real, z_th.real, places=4)
+        self.assertAlmostEqual(th.z_th.imag, z_th.imag, places=4)
         return th
 
     def test_published_answer_for_a_0(self):
@@ -66,7 +69,7 @@ class TheveninAtBus7(unittest.TestCase):
     def test_matlab_solution_for_a_80(self):
         th = self._check(80.0, 0.9348, -3.0196, 0.1645 + 0.0677j)
         i_base_ka = 10.0 / (math.sqrt(3.0) * 40.0)
-        self.assertAlmostEqual(abs(th.short_circuit_current_pu) * i_base_ka,
+        self.assertAlmostEqual(abs(th.i_sc) * i_base_ka,
                                0.7584, places=4)
 
 

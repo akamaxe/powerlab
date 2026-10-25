@@ -5,7 +5,8 @@ half-shunts, node shunts and sources, plus the :class:`ConversionStep` audit
 trail behind the per-unit table. It is a view of the positive-sequence
 :class:`~psa.core.model.SequenceModel`, which is where components actually
 become numbers (see :mod:`psa.core.model.elements` for the formulas); the
-two-port, equivalent-impedance and nodal-solve code still reads this view.
+two-port and equivalent-impedance code reads this view, and the voltage solve
+goes through :func:`~psa.core.solve.solve_nodal` on the model behind it.
 
 It keeps the strict behaviour of the S1 studies: every active bus must have a
 per-unit base, and the network must validate without errors.
@@ -88,6 +89,8 @@ class PuModel:
     labels: dict[str, str] = field(default_factory=dict)
     buses: list[str] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
+    #: The sequence model this view was taken from (the solvers read it).
+    sm: SequenceModel | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_sequence(cls, sm: SequenceModel) -> PuModel:
@@ -107,7 +110,7 @@ class PuModel:
             sources=[PuSource(s.comp_id, s.bus, s.e, s.z, s.is_slack)
                      for s in sm.sources],
             trace=list(sm.trace), labels=dict(sm.labels), buses=list(sm.buses),
-            issues=list(sm.issues))
+            issues=list(sm.issues), sm=sm)
 
     def step(self, comp_id: str) -> ConversionStep | None:
         for s in self.trace:

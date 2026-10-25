@@ -30,7 +30,6 @@ from ..core.results import Result
 from ..core.serialize import Project
 from ..core.study import STUDY_REGISTRY, default_cases, run_case, studies_by_group
 from . import clipboard
-from . import style as st
 from .commands import SetCases, SetNetworkSettings, delete_objects
 from .colouring import legend_html, voltage_level_tints, voltage_result_tints
 from .datamanager import DataManagerPanel

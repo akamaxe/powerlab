@@ -13,7 +13,6 @@ from typing import Any
 
 from PySide6.QtGui import QUndoCommand
 
-from ..core.components import buses_of
 
 
 class AddComponent(QUndoCommand):

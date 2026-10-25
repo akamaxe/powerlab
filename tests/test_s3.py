@@ -13,7 +13,6 @@ import cmath
 import math
 import unittest
 
-import numpy as np
 
 from psa.core.cases import Case
 from psa.core.errors import ValidationError
@@ -25,7 +24,6 @@ from psa.core.solve import (
     fault_constraints,
     solve_fault,
     solve_shunt_condition,
-    to_phases,
 )
 from psa.core.study import run_case
 from tests.refdata import A_NUMBERS, ref

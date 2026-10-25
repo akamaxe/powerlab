@@ -828,7 +828,6 @@ class EditorErgonomics(unittest.TestCase):
         self.assertLess(name.right(), item.scenePos().x())
 
     def test_dragging_a_connection_marks_the_real_target(self):
-        from PySide6.QtCore import QPointF as P
         from PySide6.QtWidgets import QGraphicsSceneMouseEvent
         from PySide6.QtCore import QEvent
 

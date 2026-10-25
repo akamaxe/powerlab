@@ -5,7 +5,6 @@ from __future__ import annotations
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QTransform
 from PySide6.QtWidgets import (
-    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsView,
@@ -13,11 +12,10 @@ from PySide6.QtWidgets import (
     QMenu,
 )
 
-from ..core.components import TYPE_REGISTRY, buses_of, is_series
+from ..core.components import TYPE_REGISTRY
 from . import style as st
 from .commands import Connect, MoveItems, SetLayout, SetWire, add_component_connected
 from .items import (
-    BusHandle,
     BusItem,
     ComponentItem,
     OverlayBadge,

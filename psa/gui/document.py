@@ -15,7 +15,6 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoStack
 
-from ..core.components import TYPE_REGISTRY, buses_of
 from ..core.errors import Issue
 from ..core.network import Network
 from ..core.params import Parameters

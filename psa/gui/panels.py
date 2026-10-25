@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 
-from PySide6.QtCore import QMimeData, QPointF, QSize, Qt, Signal
+from PySide6.QtCore import QMimeData, QSize, Qt, Signal
 from PySide6.QtGui import QDrag, QGuiApplication, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.components import TYPE_REGISTRY, FieldSpec, field_specs
+from ..core.components import FieldSpec, field_specs
 from ..core.errors import ExpressionError
 from ..core.export import matlab_literal
 from ..core.params import safe_eval

@@ -12,9 +12,11 @@ import unittest
 
 import numpy as np
 
-from psa.core.analysis import equivalent_impedance, solve_voltages, thevenin
+from psa.core.analysis import equivalent_impedance, solve_voltages
 from psa.core.examples import build_s1
+from psa.core.model import ModelOptions, build_model
 from psa.core.perunit import to_per_unit
+from psa.core.solve import thevenin_at
 from psa.core.twoport import two_port
 from tests.refdata import A_NUMBERS, ref, refs
 from tests.test_s2_thevenin import build_s2
@@ -54,10 +56,11 @@ class S2bAgainstMatlab(unittest.TestCase):
     def test_thevenin_at_bus_7(self):
         for a in A_NUMBERS:
             with self.subTest(A=a):
-                th = thevenin(build_s2(float(a)), "b7")
-                assert_close(th.u_th_pu, ref(a, "S2", "Uth7_pu"))
-                assert_close(th.z_th_pu, ref(a, "S2", "Zth7_pu"))
-                assert_close(th.short_circuit_current_pu, ref(a, "S2", "Isc7_pu"))
+                model = build_model(build_s2(float(a)), ModelOptions(energized_only=True))
+                th = thevenin_at(model, "b7")
+                assert_close(th.u_th, ref(a, "S2", "Uth7_pu"))
+                assert_close(th.z_th, ref(a, "S2", "Zth7_pu"))
+                assert_close(th.i_sc, ref(a, "S2", "Isc7_pu"))
 
 
 if __name__ == "__main__":

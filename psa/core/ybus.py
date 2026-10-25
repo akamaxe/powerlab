@@ -107,14 +107,3 @@ def kron_reduce(Y: np.ndarray, keep: list[int],
             buses=names, cond=float(cond) if np.isfinite(cond) else None)
 
     return Ykk - Ykm @ np.linalg.solve(Ymm, Ymk)
-
-
-def ybus_to_zbus(Y: np.ndarray) -> np.ndarray:
-    """Invert the admittance matrix, with a readable error when it is singular."""
-    cond = np.linalg.cond(Y)
-    if not np.isfinite(cond) or cond > COND_LIMIT:
-        raise SingularReductionError(
-            "The bus admittance matrix is singular, so no impedance matrix "
-            "exists. The network probably has no path to ground (add a load, "
-            "a shunt or a source).", cond=float(cond) if np.isfinite(cond) else None)
-    return np.linalg.inv(Y)
