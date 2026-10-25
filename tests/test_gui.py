@@ -12,6 +12,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -744,7 +745,7 @@ class EditorErgonomics(unittest.TestCase):
         ed = self.editor()
         ed.bind("LIcd")
         titles = [g.title() for g in ed._form_host.findChildren(QGroupBox)]
-        self.assertEqual(titles, ["General", "Connection", "Parameters"])
+        self.assertEqual(titles, ["General", "Connection", "Parameters", "Zero sequence"])
         ed.deleteLater()
 
     def test_editing_several_lines_at_once(self):
@@ -1097,6 +1098,55 @@ class DraggableLabels(unittest.TestCase):
         doc.undo.undo()
         self.assertNotIn("label_offset", doc.project.layout["LIcd"])
         self.assertEqual(item.label_offset(), auto)
+
+
+class SequenceStudiesInTheWindow(unittest.TestCase):
+    GI = ROOT / "examples" / "grid_industry.psn"
+
+    def test_all_s2_and_s3_cases_run_and_s3e_annotates_bus_7(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = NetworkDocument.open(self.GI, as_copy=True)
+        win = MainWindow(doc)
+        with unittest.mock.patch.object(win, "_error") as error:
+            win.run_all_studies()
+        self.assertFalse(error.called)
+        titles = [win.results.tabText(i) for i in range(win.results.count() - 1)]
+        self.assertEqual([t[:3] for t in titles],
+                         ["S2a", "S2b", "S2c", "S2d", "S3a", "S3b", "S3c", "S3d", "S3e"])
+        warnings = [w for i in range(len(titles)) for w in win.results.result_at(i).warnings]
+        self.assertEqual(warnings, [])
+        win.results.setCurrentIndex(titles.index(next(t for t in titles if t.startswith("S3e"))))
+        badge = next(b for b in win.scene._overlay if b.target == "b7")
+        self.assertEqual(badge.lines[0], "U 0.9302 / 0.9287 / 0.9288 pu")
+        win.close()
+
+    def test_case_dialog_hides_the_ground_impedance_unless_llg(self):
+        from psa.core.study import STUDY_REGISTRY
+        from psa.gui.dialogs import CaseDialog
+
+        doc = NetworkDocument.open(self.GI, as_copy=True)
+        dialog = CaseDialog(doc, STUDY_REGISTRY["short_circuit"], doc.case("S3c"))
+        dialog.show()
+        self.assertFalse(dialog.widgets["zg_ohm"].isVisible())
+        kind = dialog.widgets["kind"]
+        kind.setCurrentIndex(kind.findData("llg"))
+        self.assertTrue(dialog.widgets["zg_ohm"].isVisible())
+        dialog.close()
+
+    def test_unbalanced_load_dialog_offers_only_loads(self):
+        from psa.core.study import STUDY_REGISTRY
+        from psa.gui.dialogs import CaseDialog
+
+        doc = NetworkDocument.open(self.GI, as_copy=True)
+        dialog = CaseDialog(doc, STUDY_REGISTRY["unbalanced_load"], doc.case("S3e"))
+        combo = dialog.widgets["element"]
+        items = [combo.itemData(i) for i in range(combo.count())]
+        self.assertEqual(sorted(items), ["LD4", "LD6", "LD8", "LDb", "LDe"])
+        self.assertEqual(combo.currentData(), "LDe")
+        case = dialog.case()
+        self.assertEqual(case.options["factor_a"], 0.5)
+        dialog.deleteLater()
 
 
 if __name__ == "__main__":

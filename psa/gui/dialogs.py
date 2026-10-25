@@ -154,6 +154,7 @@ class CaseDialog(QDialog):
                 widget.setToolTip(spec.tooltip)
             self.widgets[spec.name] = widget
             form.addRow(spec.label + (f" [{spec.unit}]" if spec.unit else ""), widget)
+        self._form = form
         page.addLayout(form)
         for name, box in self.choice_boxes.items():
             page.addWidget(box)
@@ -241,7 +242,19 @@ class CaseDialog(QDialog):
                     out[spec.name] = self._value(spec, widget)
         return out
 
+    def _refresh_visibility(self) -> None:
+        """Show only the options that apply to the current choices."""
+        current = self._current_options()
+        for spec in self.study.option_fields:
+            rule = getattr(spec, "visible_if", None)
+            widget = self.widgets.get(spec.name)
+            if rule is None or widget is None:
+                continue
+            field_name, values = rule
+            self._form.setRowVisible(widget, current.get(field_name) in values)
+
     def _refresh_choices(self) -> None:
+        self._refresh_visibility()
         net = self.document.network
         current = self._current_options()
         for name, box in self.choice_boxes.items():
