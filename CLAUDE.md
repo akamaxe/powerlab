@@ -186,4 +186,6 @@ badges all follow from it.
   `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`
   holds the refactor to both. Regenerate them only for an intended change.
 - `tests/test_gui.py` runs on the offscreen Qt platform and redirects `QSettings` to a temporary
-  INI file; it reaches into private attributes, so GUI refactors usually need test updates.
+  INI file; it reaches into private attributes, so GUI refactors usually need test updates. A test
+  that edits the document must close its `MainWindow` with `_confirm_discard` patched to return
+  True: otherwise the unsaved-changes `QMessageBox` is modal and the run hangs.
