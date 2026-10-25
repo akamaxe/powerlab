@@ -171,5 +171,18 @@ class MatlabMatrixPrint(unittest.TestCase):
         self.assertEqual(t.rows[0][1], "1.5000 + 0.0000i")
 
 
+class UnwiredElementsInResults(unittest.TestCase):
+    def test_a_result_says_which_elements_it_left_out(self):
+        from psa.core.components import Load
+        from psa.core.examples import build_s2
+
+        net = build_s2(80.0)
+        net.add(Load("LDx", bus="", name="New load", p_mw=1.0))
+        res = run_case(net, Case("th", "thevenin", options={"bus": "b7"}))
+        self.assertTrue(any("New load is not connected" in w for w in res.warnings))
+        clean = run_case(build_s2(80.0), Case("th", "thevenin", options={"bus": "b7"}))
+        self.assertEqual(clean.warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -293,6 +293,10 @@ register(Study(
 # --------------------------------------------------------------------------- #
 
 
+#: Network validation warnings that a case's result repeats.
+CASE_WARNINGS = ("unconnected",)
+
+
 def run_case(net: Network, case: Case, params: Parameters | None = None) -> Result:
     """Run one case on (a variant of) ``net``.
 
@@ -308,6 +312,8 @@ def run_case(net: Network, case: Case, params: Parameters | None = None) -> Resu
     res.case_id = case.id
     if case.title:
         res.title = f"{case.title}: {res.title}"
+    # An element the study left out because it is not wired belongs in its result.
+    issues += [i for i in work.validate() if i.code in CASE_WARNINGS]
     res.warnings[:0] = [str(i) for i in issues]
     return res
 

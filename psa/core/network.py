@@ -249,8 +249,8 @@ class Network:
             if len(comps) > 1:
                 issues.append(Issue(
                     WARNING, "islands",
-                    f"The network has {len(comps)} separate islands. Studies "
-                    f"only see the island containing their reference bus.",
+                    f"The network has {len(comps)} separate islands. The network "
+                    f"studies keep the islands that contain a source.",
                     sorted(min(c) for c in comps)))
             for n in isolated:
                 issues.append(Issue(
