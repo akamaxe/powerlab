@@ -20,7 +20,8 @@ python -m pytest                                   # full suite, GUI runs offscr
 python -m pytest tests/test_s1_a80.py -k f_matrix  # one test
 python -m unittest discover -s tests -t .          # same suite without pytest
 python run_gui.py --example                        # GUI with the validated S1 network
-python run_s1_headless.py [project.psn] [--study KEY] [--a-number N]
+python run_headless.py examples/lf_220kv.psn [--case ID] [--study KEY] [--set A=0] [--export out.json]
+python run_s1_headless.py [project.psn] [--study KEY] [--a-number N]   # the S1 report
 PSA_ORACLES=1 python -m pytest tests/test_lf.py -k pandapower   # opt-in: pandapower takes ~15 s to import
 ```
 
@@ -71,7 +72,7 @@ Core pipeline, in the order a study sees it:
    honours each component's `model`, so a `constant_power` load or a `constant_q` shunt becomes
    an injection instead. `Generator` and `SVC` stamp nothing (an audit row only). `perunit.py` is the
    S1 view on top: `to_per_unit` returns the legacy `PuModel` (PI branches, shunts, sources,
-   trace) and stays strict.
+   trace, and the `SequenceModel` it came from in `PuModel.sm`) and stays strict.
 5. `solve/`: solvers over a `SequenceModel` — `linear.solve_nodal` (pre-fault state, sources as
    boundary conditions or Norton pairs), `zbus.ZBus` (impedance-matrix columns from one scipy LU
    factorization, ideal-source buses grounded), `thevenin.thevenin_at` (with cross-checks against
@@ -87,10 +88,11 @@ Core pipeline, in the order a study sees it:
    start, tolerance 1e-10 pu; optional Q limits turn a PU bus into PQ at its limit and re-solve
    (no switching back). It never raises on divergence: the solution says `converged=False` and
    keeps the iteration log; the Jacobian is kept at the flat start and at the last state.
-   The legacy `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance,
-   Thévenin) and `twoport.py`
-   (S1a cascade, cross-checked against Kron reduction of the Y-bus; whatever hangs off a port
-   without reaching the other one is part of the termination).
+   The S1 code reads the `PuModel` view: `ybus.py` (Y-bus and Kron reduction), `analysis.py`
+   (equivalent impedance, and `solve_voltages`, which runs `solve_nodal` on the model behind
+   the view and adds the S1 presentation) and `twoport.py` (S1a cascade, cross-checked against
+   Kron reduction of the Y-bus; whatever hangs off a port without reaching the other one is part
+   of the termination).
 6. `cases.py` + `study.py`: a `Case` is a study id plus options, field `overrides`
    (`"COMP.field": "expr"`, with the project variables and `value`, the field's own value) and
    `exclude` (ids taken out of service); `prepare_network` applies them to a deep copy, so the
@@ -108,7 +110,10 @@ Core pipeline, in the order a study sees it:
    `format short`) and the numbers behind them: `scalars`, per-bus `buses`, per-component
    `elements` (`Quantity` with a `units.QUANTITY_STYLE` kind) and labelled `matrices`.
    `Study.annotate(result, mode)` turns a result into diagram `Annotation`s; `present.py` prints
-   matrices with MATLAB's common factor (`1.0e+02 *`).
+   matrices with MATLAB's common factor (`1.0e+02 *`), and a table printed from a matrix keeps its
+   key in `Table.source`. `export.py` writes results as text, CSV, LaTeX (booktabs) or JSON
+   (full-precision numbers, complex as `{re, im}`) and matrices as MATLAB literals;
+   `run_headless.py` is its command line.
 
 GUI: `NetworkDocument` owns the `Project` and the `QUndoStack`; the `QUndoCommand`s in
 `commands.py` are the only code that mutates the network (exceptions: `apply_parameters` and
@@ -122,7 +127,12 @@ scene points; wires are routed orthogonally through them by `items.orthogonal_ro
 each terminal along `terminal_direction`). Per component type, `gui/registry.py` holds the palette
 entry, symbol class, id prefix and placement defaults. `gui/clipboard.py` copies selections as
 JSON and pastes them with fresh ids. The property editor updates widgets in place and edits
-several same-type objects at once.
+several same-type objects at once; it and the data manager (`gui/datamanager.py`, a
+`QAbstractTableModel` per type over `FIELDS`) turn typed text into commands through
+`gui/editing.py` (numbers, expressions that become bindings, empty for a `None` default).
+`gui/export.py` renders the scene to PNG/SVG/PDF with `scene.print_mode` (no grid) and the
+selection cleared; `gui/colouring.py` computes per-id tints (`ComponentItem.tint`,
+`WireItem.tint`, applied by `scene.set_tints`) and the legend `SchematicView.set_legend` shows.
 `MainWindow._run_cases` runs each case through `run_case` (F5 runs the project's cases, or one
 default case per study when there are none); the Calculate menu edits the study's own case (id =
 study key) in `CaseDialog`, which is generated from the `OptionSpec`s and has a "Network

@@ -25,7 +25,7 @@ The plan for v1 (all four assignments, a PowerFactory-grade editor) is in
 **Requirements:** Python (tested with Anaconda's 3.12.13; 3.10 or later should work),
 **PySide6** (Qt 6), **numpy**, **scipy** and **networkx**. Nothing else: matplotlib is not used,
 and the tests run with pytest or with the standard library's `unittest`. Console mode
-(`run_s1_headless.py`) does not need PySide6.
+(`run_headless.py`, `run_s1_headless.py`) does not need PySide6.
 
 Anaconda ships numpy, scipy and networkx; PySide6 comes from pip:
 
@@ -58,7 +58,34 @@ python run_gui.py my_network.psn   # opens a project
 
 ### Console mode
 
-`run_s1_headless.py` solves a project without opening any window and prints every table:
+`run_headless.py` runs the study cases of any project without opening a window, prints every
+table and can export what it ran:
+
+```
+python run_headless.py examples/lf_220kv.psn                  # every case of the project
+python run_headless.py examples/lf_220kv.psn --case LFd       # one case (repeatable)
+python run_headless.py examples/s2_grid.psn --study thevenin  # a study with its defaults
+python run_headless.py examples/lf_220kv.psn --set A=0        # change a project variable first
+python run_headless.py examples/s2_grid.psn --export s2.json  # also write .txt, .csv, .tex or .json
+python run_headless.py examples/s2_grid.psn --list            # the project's cases and the studies
+```
+
+| Option | What it does |
+|---|---|
+| `project.psn` | Project to solve |
+| `--case ID` | Run this case of the project. Repeatable. Without `--case` or `--study`, every case runs (every study with its defaults, if the project has none) |
+| `--study KEY` | Run this study: the project's case of the same id if there is one, otherwise the study's defaults. Repeatable |
+| `--set NAME=VALUE` | Set a project variable before solving (`--set A=0` gives the answers printed in the assignments). Repeatable |
+| `--export PATH` | Also write the results; the extension picks text, CSV, LaTeX or JSON |
+| `--quiet` | Do not print the results (with `--export`) |
+| `--list` | List the project's cases and the available studies |
+| `--run-script` | Run the linked variable script. Without it the saved values are used |
+
+A case that fails prints why and the others still run (exit code 1); a project that cannot be
+opened, an unknown case or a bad variable gives exit code 2.
+
+`run_s1_headless.py` prints the S1 report (bases, per-unit values, S1a-S1c) of the built-in S1
+network or of a project:
 
 ```
 python run_s1_headless.py                         # built-in S1 network, A = 80
@@ -167,12 +194,25 @@ Also:
   `|I|` and `S`. Badges follow their element when you move it. Any change to the model clears
   them and marks the results as stale.
 - **Copy results**: select cells and press `Ctrl+C`, or right-click a table for *Copy table*
-  (tab-separated, ready for a spreadsheet).
+  (tab-separated, ready for a spreadsheet). A matrix table (Y-bus, Jacobian, `Z_ph`, `F`) also
+  offers *Copy as MATLAB*, which keeps every digit: `Y = [45.466333698683 - 401.554516317015i, ...];`.
+- **Export** (*File* menu): *Export results* (`Ctrl+E`) writes the last run as text, CSV, a LaTeX
+  `booktabs` table or JSON with the full-precision numbers behind the tables; *Export diagram*
+  (`Ctrl+Shift+E`) saves the drawing as PNG, SVG or PDF, with the annotations shown and without
+  the grid.
+- **Data manager** (bottom panel, `Ctrl+Shift+D`): every element of a type in one editable table,
+  a tab per type. Cells take the same input as the property editor (expressions too), every edit
+  can be undone, the columns sort and the filter box narrows the rows. Fields the element's mode
+  does not use are greyed out; cells driven by an expression are tinted. Double-click an id to
+  show the element on the diagram.
+- **Find** (`Ctrl+F`): select an element by name or id and centre the diagram on it.
+- **Colour by** (*View* menu): voltage level (a colour per base voltage, for buses, one-level
+  elements and wires) or bus voltage (the band each bus's `|U|` falls in, for the result shown;
+  the lowest phase during a fault), with a legend in the corner of the canvas.
 - **Course presentation**: impedance and power in rectangular form; voltage and current in polar
   form with the angle in degrees, in MATLAB's `format short` style.
 
-What it does **not** do (yet): export results or the diagram (image, PDF, CSV, MATLAB; text can be
-selected in the *Log* tab), breakers as a component of their own, off-nominal taps and phase
+What it does **not** do (yet): breakers as a component of their own, off-nominal taps and phase
 shifters, transformer phase shifts in the sequence networks, or a distributed slack.
 
 ## Usage
@@ -186,8 +226,10 @@ shifters, transformer phase shifts in the sequence networks, or a distributed sl
 - **Results** (bottom): one tab per study with the headline, the warnings and the tables, plus a
   *Log* tab with the full text. If you change the model, the tabs are marked with ` *` and a
   notice appears over the canvas.
-- Menus: *File*, *Edit*, *View* (zoom, annotations, show/hide panels), *Network*
-  (*Base settings...*), *Calculate* (*Run all cases* and one submenu per study group) and *Help*.
+- **Data manager** (bottom, next to *Results*): the component tables.
+- Menus: *File* (projects, export), *Edit* (clipboard, find), *View* (zoom, annotations, colouring,
+  show/hide panels), *Network* (*Base settings...*), *Calculate* (*Run all cases* and one submenu
+  per study group) and *Help*.
 
 ### Drawing and connecting
 
@@ -230,6 +272,9 @@ snap to the grid.
 | Middle button or `Space` + drag | Pan the canvas |
 | `F5` | Run all study cases |
 | `Ctrl+R` | Show or hide the diagram annotations |
+| `Ctrl+F` | Find an element by name or id |
+| `Ctrl+Shift+D` | Data manager |
+| `Ctrl+E` / `Ctrl+Shift+E` | Export results / export the diagram |
 
 Undo covers adding, deleting, moving, connecting, editing properties, the bases, the variables
 (the network goes back to its previous values) and the buses chosen for each study. It does not
@@ -291,7 +336,8 @@ starting from the reference bus.
 
 ```
 run_gui.py            GUI startup
-run_s1_headless.py    console mode
+run_headless.py       console mode: any project's cases, variables, export
+run_s1_headless.py    console mode: the S1 report
 psa/core/     numpy + networkx, no Qt at all (a test checks it in a subprocess)
   components  dataclasses Bus / ExternalGrid / Transformer / Line / Load / Shunt / Impedance /
               Generator / SVC, with their terminals and editor fields
@@ -311,6 +357,7 @@ psa/core/     numpy + networkx, no Qt at all (a test checks it in a subprocess)
   studies/    the other studies: grid (Y-bus, linear, Thevenin, short circuit), sequence,
               loadflow
   results     result tables; units: `format short` formatting
+  export      results as text, CSV, LaTeX, JSON; matrices as MATLAB literals
   serialize   project <-> `.psn` JSON, with a migration chain
   examples    the assignment networks, parametrized by the A-number, with their cases
   errors      typed errors carrying the ids of the elements involved
@@ -323,6 +370,10 @@ psa/gui/      PySide6 (Qt 6); importing it first works around Anaconda's ICU on 
   items       single-line symbols
   panels      palette, property editor, variables, results
   dialogs     bases and study options
+  datamanager the component tables
+  editing     typed text into field edits (shared by properties and data manager)
+  colouring   colour by voltage level or bus voltage, and the legend
+  export      the diagram as PNG, SVG or PDF
   style       colours, pens and style sheet
 ```
 
@@ -337,7 +388,7 @@ the diagram. No GUI code has to change.
 ## Verification
 
 ```
-python -m pytest                              # 236 tests, a few seconds, the GUI runs offscreen
+python -m pytest                              # 263 tests, a few seconds, the GUI runs offscreen
 python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
@@ -351,7 +402,8 @@ python run_s1_headless.py --a-number 0        # the answer published in the assi
 | `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 77 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup |
+| `test_gui.py` | 90 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup, load flow in the window, export, data manager, find, colouring |
+| `test_export_and_cli.py` | 14 | Text, CSV, LaTeX, JSON and MATLAB export (every digit kept); `run_headless.py` on every case of every example, variables, export, exit codes |
 | `test_s2.py` | 10 | S2a-S2d from the example projects against the MATLAB solution, A = 80 and A = 0; the external grid from its fault level |
 | `test_s3.py` | 18 | S3a-S3e from the example projects against the MATLAB solution, A = 80 and A = 0; closed-form fault currents; zero-sequence element models |
 | `test_lf.py` | 17 | LFa-LFd and the constant-B variant from the example project against the MATLAB solution, A = 80 and A = 0; the Jacobian against finite differences and the course formulas; reactive limits, conflicting setpoints, islands without slack, divergence; pandapower cross-check (opt-in) |
@@ -415,5 +467,5 @@ The full v1 plan is in [`docs/ROADMAP.md`](docs/ROADMAP.md). In short:
 **Load flow:** one slack per island (no distributed slack), no off-nominal taps or phase
 shifters, and a PU bus that reaches a reactive limit stays PQ (no switching back).
 
-**GUI:** there is no export yet (image, PDF, CSV), no table view of all elements and no
-colouring by voltage level; these come in roadmap phase 8.
+**GUI:** one diagram page per project, no breakers or switches, and the data manager edits one
+cell at a time.

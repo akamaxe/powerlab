@@ -12,7 +12,7 @@
 | 5 | Editor ergonomics | done |
 | 6 | S3: sequence networks and unbalanced conditions | done |
 | 7 | Load flow (Newton–Raphson) | done |
-| 8 | Data manager, visualization, export, headless | pending |
+| 8 | Data manager, visualization, export, headless | done |
 | 9 | Documentation and v1 acceptance | pending |
 
 ## Context
