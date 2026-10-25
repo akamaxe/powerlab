@@ -21,16 +21,18 @@ python -m pytest tests/test_s1_a80.py -k f_matrix  # one test
 python -m unittest discover -s tests -t .          # same suite without pytest
 python run_gui.py --example                        # GUI with the validated S1 network
 python run_s1_headless.py [project.psn] [--study KEY] [--a-number N]
+PSA_ORACLES=1 python -m pytest tests/test_lf.py -k pandapower   # opt-in: pandapower takes ~15 s to import
 ```
 
 Regenerating the MATLAB reference fixtures needs the coursework folder and MATLAB; see
 `tools/refs/README.md`. `python tools/make_examples.py` rewrites the generated example projects
-(`examples/s2_grid.psn`, `examples/grid_industry.psn`) from `psa.core.examples.example_projects()`;
+(`examples/s2_grid.psn`, `examples/grid_industry.psn`, `examples/lf_220kv.psn`) from
+`psa.core.examples.example_projects()`;
 `tests/test_s2.py` fails when a file is out of date. `examples/s1_a80.psn` is hand-made.
 
 ## Architecture
 
-Two packages with a hard boundary: `psa/core` (numpy + networkx, no Qt; `CoreIsQtFree` in
+Two packages with a hard boundary: `psa/core` (numpy, scipy, networkx; no Qt: `CoreIsQtFree` in
 `tests/test_core_units_and_params.py` checks it in a subprocess) and `psa/gui` (PySide6 /
 Qt 6). Import `psa.gui` before anything that imports PySide6: on Windows its `__init__`
 preloads the system ICU, because Anaconda's `Library\bin\icuuc.dll` otherwise shadows it and
@@ -61,7 +63,13 @@ Core pipeline, in the order a study sees it:
    All three sequences exist: negative = positive with the sources' EMF at 0; zero sequence from
    the elements' data (line `z0_mode`, transformer `vector_group` and `Zn` — YNyn series, YNd/Dyn
    a shunt on the grounded-star side, else open —, load/shunt `connection`, grid `z0_mode`); a line
-   without Z0 data makes `seq(Seq.ZERO)` raise. No transformer phase shifts. `perunit.py` is the
+   without Z0 data makes `seq(Seq.ZERO)` raise. No transformer phase shifts. For the load flow
+   an element model also returns `injections(comp, ctx)` (`Injection`: role slack/pv/pq with P,
+   Q, U set, Q limits and what it `reports`), collected by `NetworkModel.injections()`.
+   `ModelOptions.load_model` / `shunt_model` decide what is stamped: by default every load is a
+   constant impedance and every shunt a constant B (the linear and fault studies); `as_set`
+   honours each component's `model`, so a `constant_power` load or a `constant_q` shunt becomes
+   an injection instead. `Generator` and `SVC` stamp nothing (an audit row only). `perunit.py` is the
    S1 view on top: `to_per_unit` returns the legacy `PuModel` (PI branches, shunts, sources,
    trace) and stays strict.
 5. `solve/`: solvers over a `SequenceModel` — `linear.solve_nodal` (pre-fault state, sources as
@@ -73,7 +81,13 @@ Core pipeline, in the order a study sees it:
    (1, 2, 0) with `T = [[1,1,1],[a^2,a,1],[a,a^2,1]]` against the sequence Thevenin equivalents
    (`SequenceNetworks`); `fault_constraints` gives `A, B` for 3ph/slg/ll/llg and
    `phase_admittance` for Y0/Y/D loads. `faults.solve_fault` builds only the sequences a fault
-   needs. The legacy `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance,
+   needs. `loadflow.solve_load_flow` is polar Newton-Raphson: bus types from the injections
+   (Slack, PU, PQ; exactly one slack per island, voltage setpoints at a bus must agree), the
+   blocks H, N, J, L from the complex derivatives of `S = U conj(Y U)`, the `dU/U` update, a flat
+   start, tolerance 1e-10 pu; optional Q limits turn a PU bus into PQ at its limit and re-solve
+   (no switching back). It never raises on divergence: the solution says `converged=False` and
+   keeps the iteration log; the Jacobian is kept at the flat start and at the last state.
+   The legacy `ybus.py`, `analysis.py` (linear nodal solve, equivalent impedance,
    Thévenin) and `twoport.py`
    (S1a cascade, cross-checked against Kron reduction of the Y-bus; whatever hangs off a port
    without reaching the other one is part of the termination).
@@ -86,7 +100,8 @@ Core pipeline, in the order a study sees it:
    `run_case(net, case, params)` lays the case options over `defaults(net)`. Calling a study
    directly, `study(net, opts, pu)`, still works. The S1 studies live in `study.py`; the others
    in `studies/` (`grid.py`: `ybus`, `linear`, `thevenin`, `short_circuit`; `sequence.py`:
-   `seqmodel`, `unbalanced_load`), imported at the end
+   `seqmodel`, `unbalanced_load`; `loadflow.py`: `loadflow`, whose options include the load and
+   shunt models), imported at the end
    of `study.py` so they register themselves. These use `build_model(..., energized_only=True)`,
    so a case that takes part of the network out of service just sees the rest.
 7. `results.py` + `present.py` + `units.py`: a `Result` holds formatted `Table`s (MATLAB
@@ -134,7 +149,9 @@ badges all follow from it.
 ## Modelling and presentation conventions
 
 - Per unit: one global `S_base`, one `U_base` per voltage zone.
-- Loads are constant impedance at their own nominal voltage; transformers have no magnetizing
+- Loads are constant impedance at their own nominal voltage (in the load flow, `model =
+  constant_power` makes one a PQ injection; a shunt's `model` picks constant B, rated at its
+  nominal voltage, or constant Q); transformers have no magnetizing
   branch and the ratio is absorbed by the base change; a shunt with `Q > 0` is capacitive; a
   line's `b_s_per_km` is the total charging of one line, split half per PI end; `n_parallel`
   divides Z and multiplies the shunts.
@@ -151,6 +168,9 @@ badges all follow from it.
 - `tests/test_s2.py` and `tests/test_s3.py` run every S2 and S3 case of the example projects
   against the fixtures, at A = 80 and, by setting the project variable A, at A = 0;
   `test_s3.py` also checks the closed-form 3ph/SLG/LL/LLG currents from the general solver.
+- `tests/test_lf.py` runs the LF cases of `examples/lf_220kv.psn` against `LF` and `LF_q_rated`
+  at `rtol=1e-8`, checks the Jacobian against finite differences, and cross-checks pandapower
+  when `PSA_ORACLES=1`.
 - `tests/fixtures/s1_a80_v1.psn`: a version 1 project, for the migration test.
 - `tests/golden/*.txt`: `run_s1_headless.py` output captured before the core v2 refactor, and
   `pumodel_v1.json`, the per-unit model of the previous implementation; `test_core_model.py`

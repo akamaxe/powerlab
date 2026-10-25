@@ -3,19 +3,19 @@
 Interactive single-line diagram editor and power system analysis tool, started from the course
 **EG2100 Power System Analysis (KTH)**.
 
-You place buses, transformers, PI-model lines, loads, shunts and external grids on a canvas in
-the style of DIgSILENT PowerFactory / ETAP, and the app converts the network to per unit and
-computes what **Assignments S1, S2 and S3** ask for: the two-port (ABCD) matrix, the
-equivalent impedance, the bus voltages, the admittance matrices of the three sequence networks,
-Thevenin equivalents, short circuits of every type and unbalanced loads, with the results
-formatted the way the course requires.
+You place buses, transformers, PI-model lines, loads, shunts, generators, SVCs and external
+grids on a canvas in the style of DIgSILENT PowerFactory / ETAP, and the app converts the network
+to per unit and computes what **all four assignments (S1, S2, S3 and LF)** ask for: the two-port
+(ABCD) matrix, the equivalent impedance, the bus voltages, the admittance matrices of the three
+sequence networks, Thevenin equivalents, short circuits of every type, unbalanced loads and the
+Newton-Raphson load flow, with the results formatted the way the course requires.
 
 | Assignment | Status in PowerLab |
 |---|---|
 | **S1** — two-port, equivalent Z, voltages | Complete in the GUI and in console mode, validated against the assignment statement (A = 0) and against the MATLAB reference solution (A = 80) |
 | **S2** — Y-bus, Thévenin, three-phase short circuit | Complete: `examples/s2_grid.psn` and `examples/grid_industry.psn` hold the four tasks as study cases, validated against the MATLAB reference solution (A = 80) and the assignment statement (A = 0) |
 | **S3** — sequence networks, single line-to-ground fault | Complete: cases S3a-S3e in `examples/grid_industry.psn` (S3a-S3c also in `examples/s2_grid.psn`), validated against the MATLAB reference solution (A = 80 and A = 0) |
-| **LF** — load flow | Pending |
+| **LF** — load flow | Complete: cases LFa-LFd and the constant-B reading of the bus-5 shunt in `examples/lf_220kv.psn`, validated against the MATLAB reference solution (A = 80 and A = 0) and against pandapower |
 
 The plan for v1 (all four assignments, a PowerFactory-grade editor) is in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
@@ -23,14 +23,14 @@ The plan for v1 (all four assignments, a PowerFactory-grade editor) is in
 ## Installation and startup
 
 **Requirements:** Python (tested with Anaconda's 3.12.13; 3.10 or later should work),
-**PySide6** (Qt 6), **numpy** and **networkx**. Nothing else: scipy and matplotlib are not
-used, and the tests run with pytest or with the standard library's `unittest`. Console mode
-(`run_s1_headless.py`) only needs numpy and networkx.
+**PySide6** (Qt 6), **numpy**, **scipy** and **networkx**. Nothing else: matplotlib is not used,
+and the tests run with pytest or with the standard library's `unittest`. Console mode
+(`run_s1_headless.py`) does not need PySide6.
 
-Anaconda ships numpy and networkx; PySide6 comes from pip:
+Anaconda ships numpy, scipy and networkx; PySide6 comes from pip:
 
 ```
-pip install PySide6 numpy networkx
+pip install PySide6 numpy scipy networkx
 ```
 
 On Windows with Anaconda, Qt 6 can fail to load ("the specified procedure could not be found")
@@ -88,8 +88,10 @@ code 2.
 | **External grid** | Voltage source behind a Thevenin impedance, given in Ω (0 = ideal) or by its fault level: `Ik` [kA] or `Sk` [MVA] with cos φ | `U` [pu], angle [°], impedance mode, `Z_th` or `Ik`/`Sk`, cos φ, nominal `U` [kV], slack |
 | **Transformer** | Two-winding, series impedance `r + jx`, no magnetizing branch | `S_n` [MVA], `U_1n`/`U_2n` [kV], `x` and `r` [%], side Z is referred to |
 | **Line / Cable** | PI equivalent, n identical lines in parallel | `r`, `x` [Ω/km], `b_c`, `g` [S/km], length [km], number in parallel |
-| **Load** | Constant impedance at its nominal voltage | `P` [MW], cos φ, lagging/leading, nominal `U` [kV], connection Y0 / Y / Δ, `Zn` |
-| **Shunt** | Capacitor (`Q > 0`) or reactor (`Q < 0`) | `Q` [MVAr], nominal `U` [kV], connection Y0 / Y / Δ |
+| **Generator** | Load flow only: PV (holds `P` and `U`), slack (holds `U` and the angle) or PQ | control, `P` [MW], `Q` [MVAr], `U set` [pu], angle [°], `Q min`/`Q max` [MVAr] |
+| **SVC** | Voltage-controlled shunt (SVC, synchronous condenser): holds its bus voltage in the load flow with whatever `Q` it takes, reported with `B = Q/U²` | `U set` [pu], `Q min`/`Q max` [MVAr] |
+| **Load** | Constant impedance at its nominal voltage; in the load flow, constant power when its model says so | `P` [MW] with cos φ (lagging/leading) or `Q` [MVAr], nominal `U` [kV], model, connection Y0 / Y / Δ, `Zn` |
+| **Shunt** | Capacitor (`Q > 0`) or reactor (`Q < 0`); in the load flow a constant susceptance rated at its nominal voltage or a constant `Q` | `Q` [MVAr], nominal `U` [kV], model, connection Y0 / Y / Δ |
 | **Impedance** | Series R + jX between two buses, or to ground | `R`, `X` in Ω or in pu |
 
 **Sequence data** (the *Zero sequence* group of each element's properties): a line gives its
@@ -117,9 +119,15 @@ grey and dashed, and no study takes it into account. A new component starts with
 | **Thevenin equivalent** | `U_th` from the pre-fault solve and `Z_th,1`, `Z_th,2`, `Z_th,0` from the impedance matrices, in pu and SI, with the three-phase and line-to-ground fault currents and `S_sc`; cross-checked against Kron reduction and against the MATLAB route `Z(k,s) E / Z(s,s)` |
 | **Short circuit** | Three-phase, single line-to-ground, line-to-line or double line-to-ground fault through `Z_f` (and `Z_g`): sequence and phase currents in pu and kA, the fault power (`U_th conj(I_f) S_base`, the course's definition, and `√3 U_base |I_f|`), and every bus phase voltage and branch phase current during the fault |
 | **Unbalanced load** | A load drawing a different power on each phase (S3e: half of phase a disconnected), solved with the sequence networks; the phase voltages it causes at every bus |
+| **Load flow (Newton-Raphson)** | Polar Newton-Raphson from a flat start with the course's bus types (Slack, PU, PQ, derived from what is connected): every bus voltage, the slack generation, the reactive power of the voltage-controlled buses (and `B = Q/U²` of an SVC), loads and shunts at the solved voltage, branch flows, total losses cross-checked by the power balance, the iteration log and the labelled Jacobian `[H N; J L]`. Options: load and shunt models for the whole network, reactive limits (a PU bus at its limit becomes PQ), tolerance and iterations |
 
 Faults and unbalanced loads are one solver: the condition at the bus is written as three phase
 equations and solved in symmetrical components against the sequence Thevenin equivalents.
+
+The load flow sees the same network as the other studies, plus what only it uses: generators,
+SVCs, constant-power loads and constant-Q shunts become injections, while constant-impedance loads
+and constant-B shunts stay in the admittance matrix. The linear, Thevenin and fault studies always
+treat loads as impedances and ignore generators and SVCs.
 
 Right-click a bus for *Thevenin equivalent here* or *Three-phase short circuit here*: the study
 runs at once, without adding a case to the project.
@@ -164,8 +172,8 @@ Also:
   form with the angle in degrees, in MATLAB's `format short` style.
 
 What it does **not** do (yet): export results or the diagram (image, PDF, CSV, MATLAB; text can be
-selected in the *Log* tab), breakers as a component of their own, load flow with constant-power
-loads, off-nominal taps, sequence networks or short circuits.
+selected in the *Log* tab), breakers as a component of their own, off-nominal taps and phase
+shifters, transformer phase shifts in the sequence networks, or a distributed slack.
 
 ## Usage
 
@@ -285,21 +293,26 @@ starting from the reference bus.
 run_gui.py            GUI startup
 run_s1_headless.py    console mode
 psa/core/     numpy + networkx, no Qt at all (a test checks it in a subprocess)
-  components  dataclasses Bus / Source / Transformer / Line / Load / Shunt / Impedance, with
-              their terminals and editor fields
+  components  dataclasses Bus / ExternalGrid / Transformer / Line / Load / Shunt / Impedance /
+              Generator / SVC, with their terminals and editor fields
   network     container, graphs, structural validation
   bases       base propagation by BFS through rated ratios
   model/      element models and sequence networks (where physical units become numbers):
-              elements (one model per component class), stamps, sequence (build_model, Y-bus)
+              elements (one model per component class: stamps and load-flow
+              injections), stamps, sequence (build_model, Y-bus)
+  solve/      solvers over the sequence networks: nodal solve, Z-bus, Thevenin, the shunt
+              condition solver (faults, unbalanced loads), Newton-Raphson load flow
   perunit     the per-unit view the S1 studies read
   ybus        Y-bus and Kron reduction, with conditioning guards
   twoport     termination rule, cascade, general method, cross-check
   analysis    equivalent impedance, nodal solve, Thévenin (basis for S2)
   params      project variables, user script, safe-eval, bindings
-  study       STUDY_REGISTRY: the extension point for S2 / S3 / LF
+  study       STUDY_REGISTRY, cases, and the S1 studies
+  studies/    the other studies: grid (Y-bus, linear, Thevenin, short circuit), sequence,
+              loadflow
   results     result tables; units: `format short` formatting
   serialize   project <-> `.psn` JSON, with a migration chain
-  examples    the S1 network parametrized by the A-number
+  examples    the assignment networks, parametrized by the A-number, with their cases
   errors      typed errors carrying the ids of the elements involved
 psa/gui/      PySide6 (Qt 6); importing it first works around Anaconda's ICU on Windows
   app         QApplication, initial document, exception hook
@@ -313,7 +326,7 @@ psa/gui/      PySide6 (Qt 6); importing it first works around Anaconda's ICU on 
   style       colours, pens and style sheet
 ```
 
-### Adding a study (S2, S3, LF)
+### Adding a study
 
 Write the function in `psa/core/` and register it with `study.register(Study(key, title,
 menu_group, run, option_fields, defaults, annotate, ...))`. That makes it appear by itself in the
@@ -324,7 +337,7 @@ the diagram. No GUI code has to change.
 ## Verification
 
 ```
-python -m pytest                              # 216 tests, a few seconds, the GUI runs offscreen
+python -m pytest                              # 236 tests, a few seconds, the GUI runs offscreen
 python -m unittest discover -s tests -t .     # the same suite without pytest
 python run_s1_headless.py                     # prints the full S1 table
 python run_s1_headless.py --a-number 0        # the answer published in the assignment
@@ -338,10 +351,14 @@ python run_s1_headless.py --a-number 0        # the answer published in the assi
 | `test_cases_and_results.py` | 16 | Study cases and network variants, the version 1 to 2 file migration, diagram annotations, MATLAB's matrix print |
 | `test_serialize_and_validation.py` | 28 | `.psn` round trip, the script is not run on open, automatic layout, validations, meshed network, parallel cables |
 | `test_core_units_and_params.py` | 20 | `format short` formatting, safe-eval, bindings, variable script, Qt-free core |
-| `test_gui.py` | 74 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup |
+| `test_gui.py` | 77 | Canvas, placement, undo (variables too), parametric and complex fields, connection drag, main window, study cases and their dialog, annotations, property editing in place and in bulk, context menus, clipboard, bus handles, wire bends, draggable labels, responsiveness at IEEE-39 size, startup |
 | `test_s2.py` | 10 | S2a-S2d from the example projects against the MATLAB solution, A = 80 and A = 0; the external grid from its fault level |
 | `test_s3.py` | 18 | S3a-S3e from the example projects against the MATLAB solution, A = 80 and A = 0; closed-form fault currents; zero-sequence element models |
+| `test_lf.py` | 17 | LFa-LFd and the constant-B variant from the example project against the MATLAB solution, A = 80 and A = 0; the Jacobian against finite differences and the course formulas; reactive limits, conflicting setpoints, islands without slack, divergence; pandapower cross-check (opt-in) |
 | `test_s2_thevenin.py` | 2 | Thévenin at bus 7 of S2 for A = 0 and A = 80 |
+
+The pandapower cross-check is skipped unless `PSA_ORACLES=1` is set, because importing
+pandapower alone takes longer than the rest of the suite.
 
 The S1 reference values come from the MATLAB reference solution of the assignment (A = 80). The
 A = 0 case is checked against the number printed in the assignment statement itself, so it is an
@@ -375,6 +392,8 @@ solution, A = 80).
 - Presentation as the course requires: **impedance and power in rectangular form; voltage and
   current in polar form with the angle in degrees**, in MATLAB's `format short` style.
 - Bases follow the nameplate, not the switching state.
+- Load flow: bus types named as in the course (Slack, PU, PQ). An external grid is the slack at
+  its own bus; its impedance is short-circuit data and does not enter the load flow.
 
 ## Example projects
 
@@ -383,17 +402,18 @@ solution, A = 80).
 | `examples/s1_a80.psn` | Assignment S1: the factory network, cases S1a-S1c |
 | `examples/s2_grid.psn` | Assignment S2 and S3a-S3c: the meshed 40 kV grid fed from 70 kV, with its sequence data |
 | `examples/grid_industry.psn` | The S2 grid with the S1 industry at bus 7: S2a-S2c and S3a-S3c (industry out of service), S2d (load LDe halved), S3d and S3e (half of phase a of LDe disconnected) |
+| `examples/lf_220kv.psn` | Assignment LF: eight 220 kV buses with the slack generator at bus 1, an SVC at bus 3 and a PV generator at bus 7; cases LFa-LFc (one run), LFd (P_LD4 up 10 %) and the bus-5 shunt as a susceptance rated at 220 kV |
 
 All of them are parametric in the variable `A`: set it to 0 to reproduce the answers printed in
-the assignment. `python tools/make_examples.py` rewrites the S2 files from their builders in
-`psa/core/examples.py`.
+the assignment. `python tools/make_examples.py` rewrites the generated files (all but
+`s1_a80.psn`) from their builders in `psa/core/examples.py`.
 
 ## Known limitations and roadmap
 
 The full v1 plan is in [`docs/ROADMAP.md`](docs/ROADMAP.md). In short:
 
-**For LF:** Newton-Raphson with slack/PV/PQ buses, constant-power
-loads and taps.
+**Load flow:** one slack per island (no distributed slack), no off-nominal taps or phase
+shifters, and a PU bus that reaches a reactive limit stays PQ (no switching back).
 
 **GUI:** there is no export yet (image, PDF, CSV), no table view of all elements and no
 colouring by voltage level; these come in roadmap phase 8.
