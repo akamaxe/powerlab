@@ -12,6 +12,7 @@ from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.cases import Case, unique_case_id
+from ..core.components import display_name
 from ..core.errors import PsaError
 from ..core.examples import build_s1, s1_parameter_bindings
 from ..core.export import FORMATS, export_results
@@ -30,6 +32,7 @@ from ..core.study import STUDY_REGISTRY, default_cases, run_case, studies_by_gro
 from . import clipboard
 from . import style as st
 from .commands import SetCases, SetNetworkSettings, delete_objects
+from .datamanager import DataManagerPanel
 from .dialogs import BaseSettingsDialog, CaseDialog
 from .document import NetworkDocument, blank_document
 from .export import DIAGRAM_FORMATS, export_diagram
@@ -100,6 +103,8 @@ class MainWindow(QMainWindow):
         self.cases_panel.deleteRequested.connect(self.delete_case)
         self.cases_panel.runRequested.connect(self.run_cases_by_id)
         self.cases_panel.runAllRequested.connect(self.run_all_studies)
+        self.data_manager.locateRequested.connect(self.focus_element)
+        self.data_manager.message.connect(lambda text: self.status.showMessage(text, 6000))
 
         self._apply_default_docks()
         self._restore_window_state()
@@ -143,6 +148,12 @@ class MainWindow(QMainWindow):
         dock = self._dock("Results", self.results, Qt.DockWidgetArea.BottomDockWidgetArea,
                           "dock_results")
         dock.setMinimumHeight(240)
+
+        self.data_manager = DataManagerPanel(self.document)
+        self._dock("Data manager", self.data_manager, Qt.DockWidgetArea.BottomDockWidgetArea,
+                   "dock_data")
+        self.tabifyDockWidget(self.dock_results, self.dock_data)
+        self.dock_results.raise_()
 
     def _dock(self, title: str, widget: QWidget, area, object_name: str
               ) -> QDockWidget:
@@ -220,6 +231,11 @@ class MainWindow(QMainWindow):
 
         self.act_bases = self._act("&Base settings...", self.edit_bases,
                                    tip="S base, frequency and the reference bus")
+        self.act_find = self._act("&Find element...", self.find_element,
+                                  QKeySequence.StandardKey.Find,
+                                  tip="Select an element by name or id and show it")
+        self.act_data = self._act("&Data manager", self.show_data_manager, "Ctrl+Shift+D",
+                                  tip="Every element of a type in one editable table")
         self.act_rotate = self._act("Rotate 90 deg", self.rotate_selection, "Ctrl+Alt+R")
         self.act_orient = self._act("Flip bus orientation", self.flip_bus, "Ctrl+Alt+O")
 
@@ -260,7 +276,7 @@ class MainWindow(QMainWindow):
         for a in (self.act_cut, self.act_copy, self.act_paste, self.act_duplicate):
             m.addAction(a)
         m.addSeparator()
-        for a in (self.act_delete, self.act_select_all):
+        for a in (self.act_delete, self.act_select_all, self.act_find):
             m.addAction(a)
         m.addSeparator()
         for a in (self.act_rotate, self.act_orient):
@@ -276,6 +292,7 @@ class MainWindow(QMainWindow):
         for dock in (self.dock_library, self.dock_variables,
                      self.dock_properties, self.dock_cases, self.dock_results):
             m.addAction(dock.toggleViewAction())
+        m.addAction(self.act_data)
 
         m = bar.addMenu("&Network")
         m.addAction(self.act_bases)
@@ -334,6 +351,7 @@ class MainWindow(QMainWindow):
         self.variables.document = doc
         self.results.document = doc
         self.cases_panel.set_document(doc)
+        self.data_manager.set_document(doc)
         self._annotated = None
         self.banner.setVisible(False)
 
@@ -571,6 +589,51 @@ class MainWindow(QMainWindow):
         for item in self.scene.items():
             if isinstance(item, ComponentItem):
                 item.setSelected(True)
+
+    def focus_element(self, obj_id: str) -> bool:
+        """Select one element, centre the diagram on it and show its properties."""
+        item = self.scene._items.get(obj_id)
+        if item is None:
+            return False
+        self.scene.clearSelection()
+        item.setSelected(True)
+        self.view.centerOn(item)
+        self._focus_properties(obj_id)
+        return True
+
+    def find_element(self) -> None:
+        net = self.document.network
+        objs = list(net.buses.values()) + list(net.components.values())
+        entries = [f"{display_name(o)}  ({o.id}, {o.TYPE})" for o in objs]
+        text, ok = QInputDialog.getItem(self, "Find element", "Name or id:", entries, 0, True)
+        if not ok or not text.strip():
+            return
+        obj_id = self.match_element(text)
+        if obj_id is None or not self.focus_element(obj_id):
+            self.status.showMessage(f"No element called '{text.strip()}'.", 5000)
+
+    def match_element(self, text: str) -> str | None:
+        """The id an entry of the find box (or a typed name or id) refers to."""
+        net = self.document.network
+        text = text.strip()
+        if text.endswith(")") and "(" in text:
+            text = text.rsplit("(", 1)[1].split(",")[0].strip()
+        objs = list(net.buses.values()) + list(net.components.values())
+        for match in (lambda o: o.id == text, lambda o: display_name(o) == text,
+                      lambda o: o.id.lower() == text.lower(),
+                      lambda o: display_name(o).lower() == text.lower()):
+            found = next((o.id for o in objs if match(o)), None)
+            if found:
+                return found
+        return None
+
+    def show_data_manager(self) -> None:
+        self.dock_data.show()
+        self.dock_data.raise_()
+        ids = self.selected_ids()
+        obj = self.document.network.get(ids[0]) if ids else None
+        if obj is not None:
+            self.data_manager.show_type(obj.TYPE)
 
     def delete_selection(self) -> None:
         ids = self.selected_ids()

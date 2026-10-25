@@ -35,7 +35,15 @@ from ..core.errors import ExpressionError
 from ..core.export import matlab_literal
 from ..core.params import safe_eval
 from . import style as st
-from .commands import Connect, SetBinding, SetField, SetParameters
+from .commands import Connect, SetParameters
+from .editing import (
+    FieldInputError,
+    apply_numeric,
+    clear_numeric,
+    num_text,
+    parse_numeric,
+    set_value,
+)
 from .registry import ELEMENT_UI
 
 def symbol_icon(type_name: str, size: int = 34) -> QIcon:
@@ -324,7 +332,7 @@ class PropertyEditor(QScrollArea):
                     elif spec.kind == "str":
                         widget.setText("" if value is None else str(value))
                     else:
-                        widget.setText(expr if expr else _num_text(value))
+                        widget.setText(expr if expr else num_text(value))
                     if isinstance(widget, ParametricLineEdit):
                         widget.set_bound(bool(expr))
                     hint = self._value_hints.get(name)
@@ -385,7 +393,7 @@ class PropertyEditor(QScrollArea):
         hint.setVisible(True)
         try:
             evaluated = safe_eval(expr, scope)
-            hint.setText(f"= {_num_text(evaluated)}")
+            hint.setText(f"= {num_text(evaluated)}")
             hint.setStyleSheet("color:#5b666e; font-size:10px;")
         except ExpressionError as exc:
             hint.setText(str(exc))
@@ -401,18 +409,8 @@ class PropertyEditor(QScrollArea):
     def _commit(self, field: str, value) -> None:
         if self._building or not self.obj_ids:
             return
-        targets = self._targets(field, value)
-        if not targets:
-            return
-        doc = self.document
-        spec = self._specs.get(field)
-        label = spec.label if spec else field
-        doc.undo.beginMacro(f"Set {label}")
-        try:
-            for obj_id in targets:
-                doc.undo.push(SetField(doc, obj_id, field, value, label))
-        finally:
-            doc.undo.endMacro()
+        spec = self._specs.get(field) or FieldSpec(field, field)
+        set_value(self.document, self.obj_ids, spec, value)
 
     def _commit_bus(self, field: str, bus_id) -> None:
         if self._building or not self.obj_id:
@@ -434,122 +432,34 @@ class PropertyEditor(QScrollArea):
         widget = self._widgets.get(field)
         text = text.strip()
         doc = self.document
-        net = doc.network
         objs = self._objects()
         exprs = {doc.params.expression_for(o.id, field) for o in objs}
         current_expr = next(iter(exprs)) if len(exprs) == 1 else None
         value0, same = self._common(objs, field)
+        ids = [o.id for o in objs]
 
         if text == "":
             if len(objs) > 1 and not same:
                 return                          # left "(several values)" alone
-            doc.undo.beginMacro(f"Clear {spec.label}")
-            try:
-                for o in objs:
-                    if doc.params.expression_for(o.id, field):
-                        doc.undo.push(SetBinding(doc, o.id, field, None))
-                    if getattr(o, field) is not None and spec.name in (
-                            "u_base_kv", "u_nominal_kv", "un_kv"):
-                        doc.undo.push(SetField(doc, o.id, field, None))
-            finally:
-                doc.undo.endMacro()
+            clear_numeric(doc, ids, spec)
             if widget:
                 widget.set_invalid(False)
             return
 
         # Focus leaving an untouched field fires editingFinished too. Comparing
         # the text, not the value, also avoids re-committing a rounded display.
-        if same and text == (current_expr or _num_text(value0)):
+        if same and text == (current_expr or num_text(value0)):
             return
-
-        plain = _try_complex(text) if spec.kind == "complex" else _try_float(text)
-        expr = None
         try:
-            if plain is not None:
-                value = _coerce_numeric(spec, plain)
-            elif spec.parametric:
-                value = _coerce_numeric(spec, safe_eval(text, doc.params.values(),
-                                                        target=field))
-                expr = text
-            else:
-                self._invalid(widget, f"{spec.label} takes a number.")
-                return
-        except (ExpressionError, TypeError, ValueError, OverflowError) as exc:
+            value, expr = parse_numeric(doc, spec, text)
+        except FieldInputError as exc:
             self._invalid(widget, str(exc))
             return
-        if not isinstance(value, complex):
-            if spec.minimum is not None and value < spec.minimum:
-                self._invalid(widget, f"{spec.label} must be at least {spec.minimum:g}.")
-                return
-            if spec.maximum is not None and value > spec.maximum:
-                self._invalid(widget, f"{spec.label} must be at most {spec.maximum:g}.")
-                return
-
         if widget:
             widget.set_invalid(False)
             widget.set_bound(expr is not None)
             widget.setToolTip(spec.tooltip or "")
-        # One undo step for every binding and value change, or nothing at all.
-        changes = []
-        for o in objs:
-            binding_changes = doc.params.expression_for(o.id, field) != expr
-            value_changes = getattr(net.get(o.id), field) != value
-            if binding_changes or value_changes:
-                changes.append((o.id, binding_changes, value_changes))
-        if not changes:
-            return
-        doc.undo.beginMacro(f"Set {spec.label}")
-        try:
-            for obj_id, binding_changes, value_changes in changes:
-                if binding_changes:
-                    doc.undo.push(SetBinding(doc, obj_id, field, expr))
-                if value_changes:
-                    doc.undo.push(SetField(doc, obj_id, field, value, spec.label))
-        finally:
-            doc.undo.endMacro()
-
-
-def _num_text(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return str(value)
-    if isinstance(value, complex):
-        return f"{value.real:g}{value.imag:+g}j" if value.imag else f"{value.real:g}"
-    if isinstance(value, float):
-        return f"{value:g}"
-    return str(value)
-
-
-def _try_float(text: str):
-    try:
-        return float(text.replace(",", "."))
-    except ValueError:
-        return None
-
-
-def _try_complex(text: str):
-    """A literal like ``1.6+0.3j`` (or MATLAB's ``1.6+0.3i``), else ``None``."""
-    compact = text.replace(" ", "").replace(",", ".")
-    if compact.endswith("i"):
-        compact = compact[:-1] + "j"
-    try:
-        return complex(compact)
-    except ValueError:
-        return None
-
-
-def _coerce_numeric(spec: FieldSpec, value):
-    """Convert an evaluated number to the field's type, or raise ``ValueError``."""
-    if spec.kind == "complex":
-        return complex(value)
-    if isinstance(value, complex):
-        if value.imag != 0:
-            raise ValueError(f"{spec.label} takes a real number, got {value}.")
-        value = value.real
-    if spec.kind == "int":
-        return int(round(float(value)))
-    return float(value)
+        apply_numeric(doc, ids, spec, value, expr)
 
 
 # --------------------------------------------------------------------------- #
@@ -642,7 +552,7 @@ class VariablesPanel(QWidget):
         self.table.setRowCount(len(rows))
         for r, (name, expr, value, source) in enumerate(rows):
             editable = source == "project"
-            for c, text in enumerate((name, expr, _num_text(value), source)):
+            for c, text in enumerate((name, expr, num_text(value), source)):
                 cell = QTableWidgetItem(text)
                 if c in (2, 3) or not editable:
                     cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)

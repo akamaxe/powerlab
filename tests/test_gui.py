@@ -1260,6 +1260,96 @@ class ExportFromTheWindow(unittest.TestCase):
         self.assertTrue(text.startswith("J0 = [") and text.endswith("];"))
 
 
+class DataManager(unittest.TestCase):
+    LF = ROOT / "examples" / "lf_220kv.psn"
+
+    def setUp(self):
+        from psa.gui.mainwindow import MainWindow
+
+        self.win = MainWindow(NetworkDocument.open(self.LF, as_copy=True))
+        self.addCleanup(self._close)
+        self.doc = self.win.document
+        self.net = self.doc.network
+
+    def _close(self):
+        with unittest.mock.patch.object(self.win, "_confirm_discard", return_value=True):
+            self.win.close()
+
+    def _cell(self, type_name: str, obj_id: str, field: str):
+        model = self.win.data_manager.pages[type_name].model
+        column = 1 + [s.name for s in model.specs].index(field)
+        return model, model.index(model.row_of(obj_id), column)
+
+    def test_one_tab_per_type_with_its_count(self):
+        dm = self.win.data_manager
+        titles = [dm.tabs.tabText(i) for i in range(dm.tabs.count())]
+        self.assertIn("Line / Cable (9)", titles)
+        self.assertIn("Generator (2)", titles)
+        self.assertIn("SVC (1)", titles)
+
+    def test_numeric_cells_take_numbers_and_expressions_and_undo(self):
+        model, index = self._cell("line", "L12", "length_km")
+        self.assertEqual(index.data(), "58.5")
+        self.assertTrue(model.setData(index, "60"))
+        self.assertEqual(self.net.get("L12").length_km, 60.0)
+        self.doc.undo.undo()
+        self.assertEqual(self.net.get("L12").length_km, 58.5)
+
+        model, index = self._cell("load", "LD4", "p_mw")
+        self.assertTrue(model.setData(index, "160 + A"))
+        self.assertEqual(self.net.get("LD4").p_mw, 240.0)
+        self.assertEqual(index.data(Qt.ItemDataRole.EditRole), "160 + A")
+        self.assertIsNotNone(index.data(Qt.ItemDataRole.BackgroundRole))
+
+    def test_bad_input_is_refused_with_a_reason(self):
+        messages = []
+        self.win.data_manager.message.connect(messages.append)
+        model, index = self._cell("line", "L12", "length_km")
+        self.assertFalse(model.setData(index, "abc"))
+        self.assertFalse(model.setData(index, "-3"))
+        self.assertEqual(self.net.get("L12").length_km, 58.5)
+        self.assertEqual(len(messages), 2)
+        model, index = self._cell("load", "LD4", "model")
+        self.assertFalse(model.setData(index, "nonsense"))
+        self.assertTrue(model.setData(index, "constant_impedance"))
+        self.assertEqual(self.net.get("LD4").model, "constant_impedance")
+
+    def test_check_boxes_and_bus_cells(self):
+        model, index = self._cell("line", "L45", "in_service")
+        self.assertTrue(model.setData(index, Qt.CheckState.Unchecked.value,
+                                      Qt.ItemDataRole.CheckStateRole))
+        self.assertFalse(self.net.get("L45").in_service)
+        model, index = self._cell("load", "LD4", "bus")
+        self.assertEqual(index.data(), "4")
+        self.assertTrue(model.setData(index, "5"))          # by bus name
+        self.assertEqual(self.net.get("LD4").bus, "b5")
+        self.assertFalse(model.setData(index, "99"))
+        self.doc.undo.undo()
+        self.assertEqual(self.net.get("LD4").bus, "b4")
+
+    def test_filter_and_structure_changes(self):
+        page = self.win.data_manager.show_type("line")
+        page.filter.setText("L2")
+        self.assertEqual(page.proxy.rowCount(), 3)          # L28, L23, L27
+        page.filter.setText("")
+        delete_objects(self.doc, ["L78"])
+        self.assertEqual(page.model.rowCount(), 8)
+        titles = [self.win.data_manager.tabs.tabText(i)
+                  for i in range(self.win.data_manager.tabs.count())]
+        self.assertIn("Line / Cable (8)", titles)
+
+    def test_find_and_locate(self):
+        self.assertEqual(self.win.match_element("G7  (G7, generator)"), "G7")
+        self.assertEqual(self.win.match_element("sh3"), "SVC3")
+        self.assertIsNone(self.win.match_element("nope"))
+        self.assertTrue(self.win.focus_element("b5"))
+        self.assertEqual(self.win.selected_ids(), ["b5"])
+        with unittest.mock.patch("psa.gui.mainwindow.QInputDialog.getItem",
+                                 return_value=("LD8", True)):
+            self.win.find_element()
+        self.assertEqual(self.win.selected_ids(), ["LD8"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
