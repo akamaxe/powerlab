@@ -1326,6 +1326,24 @@ class DataManager(unittest.TestCase):
         self.doc.undo.undo()
         self.assertEqual(self.net.get("LD4").bus, "b4")
 
+    def test_data_manager_shares_the_results_area(self):
+        self.assertIn(self.win.dock_data, self.win.tabifiedDockWidgets(self.win.dock_results))
+
+    def test_a_layout_saved_before_the_data_manager_is_ignored(self):
+        from psa.gui.mainwindow import MainWindow, _settings
+
+        old = MainWindow(NetworkDocument.open(self.LF, as_copy=True))
+        old.removeDockWidget(old.dock_data)
+        old.dock_properties.hide()
+        state = old.saveState()                                     # version 0
+        old.close()
+        _settings().setValue("windowState", state)
+        fresh = MainWindow(NetworkDocument.open(self.LF, as_copy=True))
+        self.addCleanup(fresh.close)
+        self.addCleanup(_settings().remove, "windowState")
+        self.assertFalse(fresh.dock_properties.isHidden(), "the old layout was applied")
+        self.assertIn(fresh.dock_data, fresh.tabifiedDockWidgets(fresh.dock_results))
+
     def test_filter_and_structure_changes(self):
         page = self.win.data_manager.show_type("line")
         page.filter.setText("L2")

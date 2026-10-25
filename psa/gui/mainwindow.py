@@ -50,6 +50,9 @@ FILE_FILTER = "PowerLab project (*.psn);;All files (*)"
 RESULTS_FILTER = "Text (*.txt);;CSV (*.csv);;LaTeX table (*.tex);;JSON (*.json)"
 DIAGRAM_FILTER = "PNG image (*.png);;SVG drawing (*.svg);;PDF document (*.pdf)"
 ORG, APP = "PowerLab", "PowerLab"
+#: Version of the saved dock layout. Bump it when docks are added or removed, so
+#: a layout saved by an older PowerLab is ignored instead of misplacing them.
+DOCK_STATE_VERSION = 2
 
 
 def _settings() -> QSettings:
@@ -1140,7 +1143,7 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
         if state:
-            self.restoreState(state)
+            self.restoreState(state, DOCK_STATE_VERSION)
 
     def closeEvent(self, event) -> None:
         if not self._confirm_discard():
@@ -1148,5 +1151,5 @@ class MainWindow(QMainWindow):
             return
         settings = _settings()
         settings.setValue("geometry", self.saveGeometry())
-        settings.setValue("windowState", self.saveState())
+        settings.setValue("windowState", self.saveState(DOCK_STATE_VERSION))
         super().closeEvent(event)
