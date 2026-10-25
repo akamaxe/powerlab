@@ -660,7 +660,7 @@
         "mirrored": false
       },
       "L28": {
-        "x": 180,
+        "x": 60,
         "y": 255,
         "rotation": 90,
         "mirrored": false
@@ -672,8 +672,8 @@
         "mirrored": false
       },
       "LD4": {
-        "x": 740,
-        "y": 100,
+        "x": 760,
+        "y": 40,
         "rotation": 0,
         "mirrored": false
       },

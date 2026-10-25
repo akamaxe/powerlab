@@ -105,6 +105,68 @@ It uses the buses and ports you chose in the GUI for each study (they are saved 
 If the project cannot be opened or the network is invalid, it prints the reason and returns exit
 code 2.
 
+## Solving the EG2100 assignments with PowerLab
+
+Each assignment is an example project whose study cases are its tasks. Open the project
+(*File > Open*, or `python run_gui.py examples/<file>.psn`), press `F5` to run every case, and
+read each task in its result tab; `Ctrl+R` shows the selected result on the diagram. The same
+runs work from the console with `python run_headless.py examples/<file>.psn`.
+
+Every project is parametric in the A-number: the variable `A` in the *Variables* panel (or
+`--set A=0` on the console). The numbers below are for A = 80, checked digit by digit against the
+MATLAB reference solutions; set `A = 0` to reproduce the answers printed in the assignment
+statements, which the tests also check.
+
+### S1: the factory network (`examples/s1_a80.psn`)
+
+| Task | Case (study) | Where to read it | A = 80 |
+|---|---|---|---|
+| Per-unit model | `model` (Per-unit model) | Base values, component values in per unit | `U_base` 40 / 12 / 6 kV, `Z_TI1 = 0.0000 + 0.1167i` pu |
+| S1a: two-port matrix from bus a to bus e | `s1a` (Two-port matrix) | `F_ae` and the element matrices in cascade order | `A = 1.0002 + 0.0004i`, `B = 0.0049 + 0.2792i`, `C = 0.0037 - 0.0018i`, `D = 1.0003 + 0.0006i`, `det(F) = 1` |
+| S1b: impedance seen from bus a | `s1b` (Equivalent impedance) | Result, and the two-port cross-check | `Z_I = 22.5232 + 11.1298i` pu (A = 0: `22.5156 + 11.0767i`) |
+| S1c: voltage at bus e | `s1c` (Bus voltages) | Headline and the phasor chain `U_a -> I_a -> U_e` | `U_e = 0.9952 < -0.5345` deg pu `= 5.9715` kV |
+
+### S2: the meshed 40 kV grid (`examples/s2_grid.psn`, or `examples/grid_industry.psn`)
+
+In `grid_industry.psn` the S1 industry hangs from bus 7, and cases S2a-S2c take TI1 out of service
+(its *Network variant* tab), as the assignment does.
+
+| Task | Case (study) | Where to read it | A = 80 |
+|---|---|---|---|
+| S2a: admittance matrix with the 70 kV Thevenin source | `S2a` (Y-bus, source as internal node) | The 9 x 9 matrix, printed with MATLAB's common factor; *Copy as MATLAB* gives every digit | `Y(1,1) = 45.4663 - 401.5545i`, `Y(9,9) = 45.4663 - 299.6795i` pu |
+| S2b: Thevenin equivalent at bus 7 | `S2b` (Thevenin equivalent) | Thevenin table, with the Kron and MATLAB-route cross-checks | `U_Th7 = 0.9348 < -3.0196` deg, `Z_Th7 = 0.1645 + 0.0677i` pu (A = 0: `0.9732 < -1.4224` deg, `0.0649 + 0.0356i`) |
+| S2c: three-phase fault at bus 7 | `S2c` (Short circuit, 3ph) | Fault table | `I_sc = 0.7584` kA, `S_sc = 45.4220 + 18.6951i` MVA |
+| S2d: industry voltages with LDe at 50 % | `S2d` in `grid_industry.psn` (Bus voltages, override `LDe.p_mw = 0.5*value`) | Headline and bus table | `U_LDe = 0.9289 < -3.2857` deg pu `= 5.5734` kV |
+
+### S3: sequence networks and unsymmetrical conditions (`examples/grid_industry.psn`)
+
+The zero-sequence data (line factors, transformer vector groups, delta loads) sits in the
+*Zero sequence* group of each element's properties. S3a-S3c are also in `s2_grid.psn`.
+
+| Task | Case (study) | Where to read it | A = 80 |
+|---|---|---|---|
+| S3a: zero-sequence admittance matrix | `S3a` (Y-bus, zero sequence, sources grounded) | The 8 x 8 matrix | `Y0(7,7) = 4.8795 - 1.4449i` pu |
+| S3b: sequence Thevenin impedances at bus 7 | `S3b` (Thevenin equivalent) | `Z_th,1`, `Z_th,2`, `Z_th,0` | `Z_Th7,0 = 0.4031 + 0.1226i` pu |
+| S3c: single line-to-ground fault at bus 7 | `S3c` (Short circuit, slg) | Fault table: sequence and phase currents | `I_f = 3.6126 < -22.4347` deg pu `= 0.5214` kA |
+| S3d: Thevenin equivalents at bus e, LDe disconnected | `S3d` (Thevenin equivalent, LDe excluded) | Thevenin table | `U_Th,e = 0.9340 < -3.0422` deg, `Z_1 = 0.1694 + 0.3466i`, `Z_0 = 0.1600i` pu |
+| S3e: half of phase a of LDe disconnected | `S3e` (Unbalanced load, factors 0.5 / 1 / 1) | Phase voltages at bus 7 | `21.4825 < -3.0011`, `21.4474 < -123.0463`, `21.4503 < 117.0576` deg kV |
+
+### LF: the Newton-Raphson load flow (`examples/lf_220kv.psn`)
+
+Bus 1 holds the slack generator G1, bus 3 an SVC (a PU bus with P = 0), bus 7 the PV generator
+G7; the loads are constant power and the bus-5 shunt injects its rated Q.
+
+| Task | Case (study) | Where to read it | A = 80 |
+|---|---|---|---|
+| LFa: bus types and voltages | `LFa` (Load flow) | Bus types and voltages | types Slack, PQ, PU, PQ, PQ, PQ, PU, PQ; e.g. `U_2 = 0.9832 < -13.3901` deg pu |
+| LFb: slack generation and the PU buses' reactive power | `LFa` | Generation and voltage control | `P_G1 = 380.1658` MW, `Q_G1 = 28.8537`, `Q_sh,3 = 46.6418`, `Q_G7 = 28.9567` MVAr |
+| LFc: total losses | `LFa` | Losses and power balance | `P_loss = 22.1658` MW (A = 0: `26.4240` MW) |
+| LFd: P_LD4 up 10 % | `LFd` (override `LD4.p_mw = 1.1*value`) | Losses and power balance | `P_loss = 24.3993` MW, `P_G1 = 399.0493` MW |
+| The bus-5 shunt as a susceptance rated at 220 kV | `LFb_rated` (shunt model `constant_b`) | Generation, shunts, losses | `P_loss = 22.1662` MW, `Q_sh,3 = 46.5526` MVAr, `B_sh,3 = 0.4655` pu |
+
+The iteration log and the Jacobian at the flat start are at the bottom of each load-flow tab; the
+Jacobian copies as MATLAB too.
+
 ## What it can do
 
 ### Components
