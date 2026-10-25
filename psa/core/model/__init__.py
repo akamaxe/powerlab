@@ -9,11 +9,11 @@ from .sequence import (
     build_model,
     energized_buses,
 )
-from .stamps import BranchStamp, ConversionStep, Seq, ShuntStamp, SourceStamp
+from .stamps import BranchStamp, ConversionStep, Injection, Seq, ShuntStamp, SourceStamp
 
 __all__ = [
     "BranchStamp", "ConversionStep", "ELEMENT_MODELS", "ElementModel",
-    "INTERNAL_NODE_SUFFIX", "ModelOptions", "NetworkModel", "Seq",
+    "INTERNAL_NODE_SUFFIX", "Injection", "ModelOptions", "NetworkModel", "Seq",
     "SequenceModel", "ShuntStamp", "SourceStamp", "build_model",
     "element_model", "energized_buses", "model_for",
 ]

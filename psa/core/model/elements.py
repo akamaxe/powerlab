@@ -35,6 +35,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..components import (
+    SVC,
+    Generator,
     Impedance,
     Line,
     Load,
@@ -44,7 +46,7 @@ from ..components import (
     display_name,
 )
 from ..errors import WARNING, Issue, ValidationError
-from .stamps import BranchStamp, ConversionStep, Seq, ShuntStamp, SourceStamp
+from .stamps import BranchStamp, ConversionStep, Injection, Seq, ShuntStamp, SourceStamp
 
 if TYPE_CHECKING:
     from ..bases import BaseTable
@@ -60,11 +62,27 @@ REFER_RTOL = 1e-9
 
 @dataclass
 class StampContext:
-    """What an element model needs to know about the network it is stamped into."""
+    """What an element model needs to know about the network it is stamped into.
+
+    ``load_model`` and ``shunt_model`` come from the study: ``as_set`` honours
+    each component's own ``model`` field; any other value applies to all.
+    Linear, Thevenin and fault studies use ``constant_impedance`` and
+    ``constant_b``; the load flow ``as_set``.
+    """
 
     bases: BaseTable
     s_base: float
     seq: Seq = Seq.POS
+    load_model: str = "constant_impedance"
+    shunt_model: str = "constant_b"
+
+    def load_is_power(self, load: Load) -> bool:
+        model = load.model if self.load_model == "as_set" else self.load_model
+        return model == "constant_power" and self.seq == Seq.POS
+
+    def shunt_is_power(self, shunt: Shunt) -> bool:
+        model = shunt.model if self.shunt_model == "as_set" else self.shunt_model
+        return model == "constant_q" and self.seq == Seq.POS
 
 
 @dataclass
@@ -88,6 +106,10 @@ class ElementModel:
     def stamp(self, comp: Any, ctx: StampContext, out: Stamps) -> None:
         """Append this component's stamps, audit row and issues to ``out``."""
         raise NotImplementedError
+
+    def injections(self, comp: Any, ctx: StampContext) -> list[Injection]:
+        """What the component asks of the load flow (nothing, by default)."""
+        return []
 
 
 ELEMENT_MODELS: dict[type, ElementModel] = {}
@@ -123,7 +145,9 @@ def base_ratio(comp: Any, from_bus: str, to_bus: str) -> float:
 
 
 def load_power_mva(load: Load) -> complex:
-    """Complex power of an impedance load, ``lag`` giving inductive (+jQ)."""
+    """Complex power of a load, ``lag`` (or a positive Q) giving inductive (+jQ)."""
+    if load.spec == "p_q":
+        return complex(load.p_mw, load.q_mvar)
     cos_phi = load.cos_phi
     if not 0.0 < cos_phi <= 1.0:
         raise ValidationError(
@@ -365,6 +389,10 @@ class LoadModel(ElementModel):
                 f"{step.name} is set to '{comp.model}', but these studies "
                 f"are linear and model every load as a constant impedance "
                 f"at its nominal voltage.", [comp.id]))
+        if ctx.load_is_power(comp):
+            step.note = "constant power: a PQ injection in the load flow"
+            out.trace.append(step)
+            return
         if ctx.seq == Seq.ZERO:
             if comp.connection == "Y0":
                 y_pu = _grounded_star_y(y_pu, complex(comp.zn_ohm) / ctx.bases.z(comp.bus))
@@ -379,12 +407,22 @@ class LoadModel(ElementModel):
         out.shunts.append(ShuntStamp(comp.id, comp.bus, y_pu, "load"))
         out.trace.append(step)
 
+    def injections(self, comp: Load, ctx: StampContext) -> list[Injection]:
+        if not ctx.load_is_power(comp):
+            return []
+        s = load_power_mva(comp) / ctx.s_base
+        return [Injection(comp.id, comp.bus, "pq", p=-s.real, q=-s.imag, reports="load")]
+
 
 @element_model(Shunt)
 class ShuntModel(ElementModel):
     def stamp(self, comp: Shunt, ctx: StampContext, out: Stamps) -> None:
         y_pu, step = shunt_y_pu(comp, ctx.bases, ctx.s_base)
         step.seq = ctx.seq
+        if ctx.shunt_is_power(comp):
+            step.note = "constant Q: an injection in the load flow"
+            out.trace.append(step)
+            return
         if ctx.seq == Seq.ZERO and comp.connection != "Y0":
             step.note = f"{comp.connection}: open in the zero sequence"
             step.y_pu = None
@@ -392,6 +430,57 @@ class ShuntModel(ElementModel):
             return
         out.shunts.append(ShuntStamp(comp.id, comp.bus, y_pu, "shunt"))
         out.trace.append(step)
+
+    def injections(self, comp: Shunt, ctx: StampContext) -> list[Injection]:
+        if not ctx.shunt_is_power(comp):
+            return []
+        return [Injection(comp.id, comp.bus, "pq", q=comp.q_mvar / ctx.s_base,
+                          reports="shunt")]
+
+
+@element_model(Generator)
+class GeneratorModel(ElementModel):
+    """A load-flow injection only; the linear and fault studies do not see it."""
+
+    def stamp(self, comp: Generator, ctx: StampContext, out: Stamps) -> None:
+        out.trace.append(ConversionStep(
+            comp_id=comp.id, name=display_name(comp), comp_type="generator",
+            bus_ref=comp.bus, u_base_kv=ctx.bases.u(comp.bus),
+            z_base_ohm=ctx.bases.z(comp.bus), seq=ctx.seq,
+            s_mva=complex(comp.p_mw, comp.q_mvar if comp.control == "pq" else 0.0),
+            note=f"{comp.control.upper()} generator (load flow only)"))
+
+    def injections(self, comp: Generator, ctx: StampContext) -> list[Injection]:
+        sb = ctx.s_base
+        lim = (None if comp.q_min_mvar is None else comp.q_min_mvar / sb,
+               None if comp.q_max_mvar is None else comp.q_max_mvar / sb)
+        if comp.control == "slack":
+            return [Injection(comp.id, comp.bus, "slack", u_set=comp.u_set_pu,
+                              theta_deg=comp.theta_deg)]
+        if comp.control == "pq":
+            return [Injection(comp.id, comp.bus, "pq", p=comp.p_mw / sb,
+                              q=comp.q_mvar / sb)]
+        return [Injection(comp.id, comp.bus, "pv", p=comp.p_mw / sb, u_set=comp.u_set_pu,
+                          q_min=lim[0], q_max=lim[1])]
+
+
+@element_model(SVC)
+class SvcModel(ElementModel):
+    """A voltage-controlled shunt: a PU bus with P = 0 in the load flow."""
+
+    def stamp(self, comp: SVC, ctx: StampContext, out: Stamps) -> None:
+        out.trace.append(ConversionStep(
+            comp_id=comp.id, name=display_name(comp), comp_type="svc",
+            bus_ref=comp.bus, u_base_kv=ctx.bases.u(comp.bus),
+            z_base_ohm=ctx.bases.z(comp.bus), seq=ctx.seq,
+            note=f"holds {comp.u_set_pu:g} pu (load flow only)"))
+
+    def injections(self, comp: SVC, ctx: StampContext) -> list[Injection]:
+        sb = ctx.s_base
+        return [Injection(comp.id, comp.bus, "pv", u_set=comp.u_set_pu,
+                          q_min=None if comp.q_min_mvar is None else comp.q_min_mvar / sb,
+                          q_max=None if comp.q_max_mvar is None else comp.q_max_mvar / sb,
+                          reports="svc")]
 
 
 @element_model(Source)
@@ -442,6 +531,13 @@ class ExternalGridModel(ElementModel):
             z_ohm=z_ohm if z_ohm != 0 else None,
             note=note, seq=ctx.seq,
         ))
+
+    def injections(self, comp: Source, ctx: StampContext) -> list[Injection]:
+        """The slack of the load flow, at its terminal (its impedance is not used)."""
+        if not comp.is_slack:
+            return []
+        return [Injection(comp.id, comp.bus, "slack", u_set=comp.u_pu,
+                          theta_deg=comp.theta_deg, reports="grid")]
 
 
 @element_model(Impedance)

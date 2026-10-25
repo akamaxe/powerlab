@@ -225,10 +225,20 @@ class Network:
                     ERROR, "bad_len",
                     f"{display_name(c)}: length must not be negative.", [c.id]))
         for c in self.of_type("load"):
-            if not 0.0 < c.cos_phi <= 1.0:
+            if c.spec != "p_q" and not 0.0 < c.cos_phi <= 1.0:
                 issues.append(Issue(
                     ERROR, "bad_pf",
                     f"{display_name(c)}: cos phi must be in (0, 1].", [c.id]))
+        for c in [*self.of_type("generator"), *self.of_type("svc")]:
+            if c.u_set_pu <= 0:
+                issues.append(Issue(
+                    ERROR, "bad_u_set",
+                    f"{display_name(c)}: the voltage setpoint must be positive.", [c.id]))
+            if (c.q_min_mvar is not None and c.q_max_mvar is not None
+                    and c.q_min_mvar > c.q_max_mvar):
+                issues.append(Issue(
+                    ERROR, "bad_q_limits",
+                    f"{display_name(c)}: Q min is above Q max.", [c.id]))
 
         # Islands
         g = self.graph()

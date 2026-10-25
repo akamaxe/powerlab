@@ -81,6 +81,29 @@ class SourceStamp:
         return self.z == 0
 
 
+@dataclass(eq=False)
+class Injection:
+    """What a component asks of the load flow at its bus (powers in pu, generation positive).
+
+    ``role`` ``slack`` fixes the voltage ``u_set`` and the angle ``theta_deg``;
+    ``pv`` fixes the active power ``p`` and the voltage magnitude ``u_set``
+    (its reactive power is a result, within ``q_min``..``q_max`` when given);
+    ``pq`` fixes ``p`` and ``q``. ``reports`` says what the component is, for the
+    result tables: ``generator``, ``svc``, ``load``, ``shunt`` or ``grid``.
+    """
+
+    comp_id: str
+    bus: str
+    role: str
+    p: float = 0.0
+    q: float = 0.0
+    u_set: float = 1.0
+    theta_deg: float = 0.0
+    q_min: float | None = None
+    q_max: float | None = None
+    reports: str = "generator"
+
+
 @dataclass
 class ConversionStep:
     """One row of the "component values in per unit" results table."""

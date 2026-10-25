@@ -3,10 +3,8 @@
 :func:`build_model` validates the network, propagates the per-unit bases and
 returns a :class:`NetworkModel`; :meth:`NetworkModel.seq` builds (and caches)
 the :class:`SequenceModel` of one sequence by asking every active component's
-element model for its stamps. Every solver reads a :class:`SequenceModel`.
-
-Only the positive sequence exists so far; the negative and zero sequences
-arrive with the unsymmetrical studies.
+element model for its stamps. Every solver reads a :class:`SequenceModel`;
+the load flow also reads :meth:`NetworkModel.injections`.
 """
 
 from __future__ import annotations
@@ -40,6 +38,11 @@ class ModelOptions:
     #: active bus with a base is kept, which the S1 studies need: they analyse
     #: the passive network with its source switched off.
     energized_only: bool = False
+    #: ``constant_impedance`` (linear and fault studies), ``constant_power`` or
+    #: ``as_set`` (each load's own model; the load flow).
+    load_model: str = "constant_impedance"
+    #: ``constant_b``, ``constant_q`` or ``as_set`` (each shunt's own model).
+    shunt_model: str = "constant_b"
 
 
 @dataclass
@@ -127,8 +130,23 @@ class NetworkModel:
             self._cache[s] = self._build(s)
         return self._cache[s]
 
+    def injections(self) -> list:
+        """What every active component asks of the load flow."""
+        ctx = self._context(Seq.POS)
+        keep = set(self.buses)
+        out = []
+        for comp in self.net.active_components(set(self.options.exclude)):
+            if all(b in keep for b in buses_of(comp)):
+                out.extend(model_for(comp).injections(comp, ctx))
+        return out
+
+    def _context(self, s: Seq) -> StampContext:
+        return StampContext(bases=self.bases, s_base=self.net.s_base_mva, seq=s,
+                            load_model=self.options.load_model,
+                            shunt_model=self.options.shunt_model)
+
     def _build(self, s: Seq) -> SequenceModel:
-        ctx = StampContext(bases=self.bases, s_base=self.net.s_base_mva, seq=s)
+        ctx = self._context(s)
         out = Stamps()
         keep = set(self.buses)
         for comp in self.net.active_components(set(self.options.exclude)):
@@ -148,7 +166,7 @@ def energized_buses(net: Network, exclude: set[str] | frozenset[str] = frozenset
     """Buses in an island (over in-service branches) that contains a source."""
     g = net.graph(set(exclude))
     source_buses = {c.bus for c in net.active_components(set(exclude))
-                    if isinstance(c, Source)}
+                    if isinstance(c, Source) or getattr(c, "TYPE", "") == "generator"}
     out: set[str] = set()
     for island in nx.connected_components(g):
         if island & source_buses:

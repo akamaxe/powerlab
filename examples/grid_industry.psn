@@ -331,6 +331,8 @@
         "pf_sign": "lag",
         "u_nominal_kv": 40.0,
         "model": "constant_impedance",
+        "spec": "p_cosphi",
+        "q_mvar": 0.0,
         "connection": "Y0",
         "zn_ohm": [
           0.0,
@@ -348,6 +350,8 @@
         "pf_sign": "lag",
         "u_nominal_kv": 40.0,
         "model": "constant_impedance",
+        "spec": "p_cosphi",
+        "q_mvar": 0.0,
         "connection": "D",
         "zn_ohm": [
           0.0,
@@ -365,6 +369,8 @@
         "pf_sign": "lag",
         "u_nominal_kv": 40.0,
         "model": "constant_impedance",
+        "spec": "p_cosphi",
+        "q_mvar": 0.0,
         "connection": "Y0",
         "zn_ohm": [
           0.0,
@@ -379,7 +385,8 @@
         "in_service": true,
         "q_mvar": 2.0,
         "u_nominal_kv": 40.0,
-        "connection": "D"
+        "connection": "D",
+        "model": "constant_b"
       },
       {
         "type": "shunt",
@@ -389,7 +396,8 @@
         "in_service": true,
         "q_mvar": 2.0,
         "u_nominal_kv": 40.0,
-        "connection": "Y0"
+        "connection": "Y0",
+        "model": "constant_b"
       },
       {
         "type": "transformer",
@@ -496,6 +504,8 @@
         "pf_sign": "lag",
         "u_nominal_kv": 12.0,
         "model": "constant_impedance",
+        "spec": "p_cosphi",
+        "q_mvar": 0.0,
         "connection": "Y0",
         "zn_ohm": [
           0.0,
@@ -513,6 +523,8 @@
         "pf_sign": "lag",
         "u_nominal_kv": 6.0,
         "model": "constant_impedance",
+        "spec": "p_cosphi",
+        "q_mvar": 0.0,
         "connection": "Y0",
         "zn_ohm": [
           0.0,

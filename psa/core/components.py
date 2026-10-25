@@ -374,7 +374,9 @@ class Load:
     cos_phi: float = 1.0
     pf_sign: str = "lag"                 # lag gives +jQ (inductive), lead gives -jQ
     u_nominal_kv: float | None = None    # None => use the bus base
-    model: str = "constant_impedance"    # constant_power reserved for LF
+    model: str = "constant_impedance"    # constant_impedance | constant_power (load flow)
+    spec: str = "p_cosphi"               # p_cosphi | p_q
+    q_mvar: float = 0.0                  # spec "p_q": positive is inductive
     connection: str = "Y0"               # Y0 grounded star | Y star | D delta
     zn_ohm: complex = 0j                 # neutral to earth of a Y0 load
 
@@ -384,15 +386,22 @@ class Load:
     FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
         FieldSpec("bus", "Bus", "bus", parametric=False),
         FieldSpec("p_mw", "P", "float", "MW"),
-        FieldSpec("cos_phi", "cos phi", "float", "", minimum=0.0, maximum=1.0),
+        FieldSpec("spec", "Given as", "choice", choices=("p_cosphi", "p_q"),
+                  parametric=False, tooltip="P and cos phi, or P and Q"),
+        FieldSpec("cos_phi", "cos phi", "float", "", minimum=0.0, maximum=1.0,
+                  visible_if=("spec", ("p_cosphi",))),
         FieldSpec("pf_sign", "Power factor", "choice", choices=("lag", "lead"),
-                  parametric=False),
+                  parametric=False, visible_if=("spec", ("p_cosphi",))),
+        FieldSpec("q_mvar", "Q", "float", "MVAr", visible_if=("spec", ("p_q",)),
+                  tooltip="Positive is inductive (the load absorbs reactive power)"),
         FieldSpec("u_nominal_kv", "U nominal", "float", "kV", minimum=0.0,
                   tooltip="Voltage at which the load consumes P. Empty means the bus base."),
         FieldSpec("model", "Model", "choice",
                   choices=("constant_impedance", "constant_power"),
                   parametric=False,
-                  tooltip="Only constant_impedance is used by the S1 studies"),
+                  tooltip="The load flow honours constant_power (a PQ injection); the "
+                          "linear, Thevenin and fault studies treat every load as a "
+                          "constant impedance at its nominal voltage"),
         FieldSpec("connection", "Connection", "choice", choices=CONNECTIONS,
                   parametric=False, group="Zero sequence",
                   tooltip="Y0: grounded star (a zero-sequence path). Y and D: none."),
@@ -413,6 +422,7 @@ class Shunt:
     q_mvar: float = 0.0
     u_nominal_kv: float | None = None
     connection: str = "Y0"               # Y0 grounded star | Y star | D delta
+    model: str = "constant_b"            # constant_b | constant_q (load flow)
 
     TYPE: ClassVar[str] = "shunt"
     TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
@@ -423,9 +433,86 @@ class Shunt:
                   tooltip="Positive is capacitive, the same sign as line charging. "
                           "Use a negative value for a reactor."),
         FieldSpec("u_nominal_kv", "U nominal", "float", "kV", minimum=0.0),
+        FieldSpec("model", "Model", "choice", choices=("constant_b", "constant_q"),
+                  parametric=False, group="Load flow",
+                  tooltip="constant_b: Q is rated at U nominal and scales with U^2. "
+                          "constant_q: the load flow injects Q whatever the voltage."),
         FieldSpec("connection", "Connection", "choice", choices=CONNECTIONS,
                   parametric=False, group="Zero sequence",
                   tooltip="Y0: grounded star (a zero-sequence path). Y and D: none."),
+    )
+
+
+@dataclass
+class Generator:
+    """A generator in the load flow: PV (P and U), slack (U and angle) or PQ.
+
+    Not part of the linear, Thevenin and fault studies, which see sources only.
+    """
+
+    id: str
+    bus: str = ""
+    name: str = ""
+    in_service: bool = True
+    control: str = "pv"                  # pv | slack | pq
+    p_mw: float = 0.0
+    q_mvar: float = 0.0                  # control "pq"
+    u_set_pu: float = 1.0                # control "pv" and "slack"
+    theta_deg: float = 0.0               # control "slack"
+    q_min_mvar: float | None = None      # PV limits; None means unlimited
+    q_max_mvar: float | None = None
+
+    TYPE: ClassVar[str] = "generator"
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
+    FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
+        FieldSpec("bus", "Bus", "bus", parametric=False),
+        FieldSpec("control", "Control", "choice", choices=("pv", "slack", "pq"),
+                  parametric=False, group="Load flow",
+                  tooltip="pv: holds P and the bus voltage. slack: holds the voltage "
+                          "and its angle and balances the network. pq: holds P and Q."),
+        FieldSpec("p_mw", "P", "float", "MW", group="Load flow",
+                  visible_if=("control", ("pv", "pq"))),
+        FieldSpec("q_mvar", "Q", "float", "MVAr", group="Load flow",
+                  visible_if=("control", ("pq",))),
+        FieldSpec("u_set_pu", "U set", "float", "pu", minimum=0.0, group="Load flow",
+                  visible_if=("control", ("pv", "slack"))),
+        FieldSpec("theta_deg", "Angle", "float", "deg", group="Load flow",
+                  visible_if=("control", ("slack",))),
+        FieldSpec("q_min_mvar", "Q min", "float", "MVAr", group="Load flow",
+                  visible_if=("control", ("pv",)), tooltip="Empty: no limit"),
+        FieldSpec("q_max_mvar", "Q max", "float", "MVAr", group="Load flow",
+                  visible_if=("control", ("pv",)), tooltip="Empty: no limit"),
+    )
+
+
+@dataclass
+class SVC:
+    """Voltage-controlled shunt compensator (SVC, synchronous condenser).
+
+    In the load flow it holds its bus voltage with whatever reactive power it
+    takes (a PU bus with P = 0), and reports that Q and the susceptance
+    ``B = Q / U^2`` it amounts to.
+    """
+
+    id: str
+    bus: str = ""
+    name: str = ""
+    in_service: bool = True
+    u_set_pu: float = 1.0
+    q_min_mvar: float | None = None
+    q_max_mvar: float | None = None
+
+    TYPE: ClassVar[str] = "svc"
+    TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
+    BUS_FIELDS: ClassVar[tuple[str, ...]] = tuple(t.field for t in TERMINALS)
+    FIELDS: ClassVar[tuple[FieldSpec, ...]] = _COMMON + (
+        FieldSpec("bus", "Bus", "bus", parametric=False),
+        FieldSpec("u_set_pu", "U set", "float", "pu", minimum=0.0, group="Load flow"),
+        FieldSpec("q_min_mvar", "Q min", "float", "MVAr", group="Load flow",
+                  tooltip="Empty: no limit (negative is inductive)"),
+        FieldSpec("q_max_mvar", "Q max", "float", "MVAr", group="Load flow",
+                  tooltip="Empty: no limit"),
     )
 
 
@@ -461,7 +548,7 @@ class Impedance:
 # --------------------------------------------------------------------------- #
 
 COMPONENT_CLASSES: tuple[type, ...] = (
-    Bus, ExternalGrid, Transformer, Line, Load, Shunt, Impedance,
+    Bus, ExternalGrid, Transformer, Line, Load, Shunt, Impedance, Generator, SVC,
 )
 
 TYPE_REGISTRY: dict[str, type] = {c.TYPE: c for c in COMPONENT_CLASSES}
