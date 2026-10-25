@@ -13,7 +13,7 @@ import math
 import numpy as np
 
 from .results import LabeledMatrix, Table
-from .units import fmt_matrix, fmt_rect
+from .units import fmt_matrix, fmt_real, fmt_rect
 
 #: Fixed-point window of ``format short``: complex entries leave it at 100,
 #: real ones at 1000 (see :mod:`psa.core.units`).
@@ -46,14 +46,20 @@ def fmt_matrix_scaled(m) -> tuple[str, list[str]]:
 
 
 def matrix_table(lm: LabeledMatrix) -> Table:
-    """A labelled matrix as a table, with MATLAB's common factor in the title."""
-    arr = np.asarray(lm.data, dtype=complex)
+    """A labelled matrix as a table, with MATLAB's common factor in the title.
+
+    A real matrix (a Jacobian) prints its entries as real numbers.
+    """
+    arr = np.asarray(lm.data)
+    if not np.iscomplexobj(arr):
+        arr = arr.astype(float)
     k = matrix_scale(arr)
     factor = f"1.0e{k:+03d} *" if k else ""
     scaled = arr / 10.0 ** k if k else arr
+    fmt = (lambda c: fmt_rect(c, "fix")) if np.iscomplexobj(arr) else (lambda c: fmt_real(c, "fix"))
     t = Table(lm.title + (f"   ({factor})" if factor else ""), [""] + list(lm.cols))
     for label, row in zip(lm.rows, scaled):
-        t.add(label, *(fmt_rect(c, "fix") for c in row))
+        t.add(label, *(fmt(c) for c in row))
     if factor:
         t.note = f"every entry is multiplied by 1.0e{k:+03d}"
     return t

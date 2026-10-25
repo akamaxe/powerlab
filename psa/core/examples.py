@@ -10,7 +10,17 @@ writes them to ``examples/`` and a test checks the files still match.
 from __future__ import annotations
 
 from .cases import Case
-from .components import Bus, ExternalGrid, Line, Load, Shunt, Source, Transformer
+from .components import (
+    SVC,
+    Bus,
+    ExternalGrid,
+    Generator,
+    Line,
+    Load,
+    Shunt,
+    Source,
+    Transformer,
+)
 from .network import Network
 from .params import safe_eval
 
@@ -187,6 +197,58 @@ def grid_industry_parameter_bindings(a_number: float = 80.0
 
 
 # --------------------------------------------------------------------------- #
+# Assignment LF: the 220 kV transmission network
+# --------------------------------------------------------------------------- #
+
+#: (bus i, bus j, length in km) for the nine 220 kV lines.
+LF_LINES = ((1, 2, 58.5), (2, 8, 108.5), (2, 3, 100.0), (3, 4, 100.0), (4, 5, 150.0),
+            (5, 6, 150.0), (6, 7, 90.0), (7, 8, 90.0), (2, 7, 200.0))
+#: (bus, P expression in MW, Q in MVAr) for the three constant-power loads.
+LF_LOADS = ((4, "158.5 + 0.1*A", 30.0), (6, "230 - 0.5*A", 10.0), (8, "210", 30.0))
+LF_SHUNT_Q = "0.2 + 0.1*A"
+
+
+def build_lf(a_number: float = 80.0) -> Network:
+    """EG2100 Assignment LF: eight 220 kV buses, slack at bus 1.
+
+    Bus 3 holds 220 kV with a controllable shunt (an SVC, a PU bus with
+    P = 0), the generator at bus 7 delivers 208.5 MW at 220 kV, and the loads
+    at buses 4, 6 and 8 are constant power. The shunt at bus 5 injects its
+    rated Q whatever the voltage, as the assignment reads; ``shunt_model =
+    constant_b`` in a case makes it a susceptance rated at 220 kV instead.
+    Reference (A = 80): P_G1 = 380.1658 MW, P_loss = 22.1658 MW; A = 0:
+    P_loss = 26.4240 MW.
+    """
+    a = float(a_number)
+    net = Network(s_base_mva=100.0, f_hz=50.0, base_ref_bus="b1", base_ref_u_kv=220.0,
+                  meta={"title": f"EG2100 Assignment LF, A = {a:g}"})
+    for n in range(1, 9):
+        net.add(Bus(f"b{n}", name=str(n)))
+    net.add(Generator("G1", bus="b1", name="G1", control="slack", u_set_pu=1.0,
+                      theta_deg=0.0))
+    net.add(Generator("G7", bus="b7", name="G7", control="pv", p_mw=208.5, u_set_pu=1.0))
+    net.add(SVC("SVC3", bus="b3", name="Sh3", u_set_pu=1.0))
+    line = dict(r_ohm_per_km=0.05, x_ohm_per_km=0.5, b_s_per_km=3.6e-6)
+    for i, j, length in LF_LINES:
+        net.add(Line(f"L{i}{j}", bus_from=f"b{i}", bus_to=f"b{j}", name=f"L{i}{j}",
+                     length_km=length, **line))
+    for bus, p_mw, q_mvar in LF_LOADS:
+        net.add(Load(f"LD{bus}", bus=f"b{bus}", name=f"LD{bus}", p_mw=_eval_a(p_mw, a),
+                     spec="p_q", q_mvar=q_mvar, model="constant_power", u_nominal_kv=220.0))
+    net.add(Shunt("SH5", bus="b5", name="Sh5", q_mvar=_eval_a(LF_SHUNT_Q, a),
+                  u_nominal_kv=220.0, model="constant_q"))
+    return net
+
+
+def lf_parameter_bindings(a_number: float = 80.0) -> tuple[list[tuple[str, str]],
+                                                           dict[str, str]]:
+    """Project variables and bindings that reproduce :func:`build_lf`."""
+    bindings = {f"LD{bus}.p_mw": p_mw for bus, p_mw, _ in LF_LOADS if p_mw != "210"}
+    bindings["SH5.q_mvar"] = LF_SHUNT_Q
+    return [("A", str(float(a_number)))], bindings
+
+
+# --------------------------------------------------------------------------- #
 # Layouts (the figures of the assignment) and cases (its tasks)
 # --------------------------------------------------------------------------- #
 
@@ -224,6 +286,34 @@ def industry_layout() -> dict[str, dict]:
         "LIbc": _sym(540, 760), "LIcd": _sym(780, 760), "TI2": _sym(1020, 760),
         "LDb": _sym(420, 870), "LDe": _sym(1140, 870),
     }
+
+
+def lf_layout() -> dict[str, dict]:
+    """The LF figure: buses 1-2-3-4 on top, 8-7-6 below, bus 5 between 4 and 6."""
+    return {
+        "b1": _bus(0, 0), "b2": _bus(300, 0, length=80), "b3": _bus(540, 0),
+        "b4": _bus(780, 0), "b5": _bus(780, 240, "H", 80), "b6": _bus(780, 480),
+        "b7": _bus(540, 480, length=80), "b8": _bus(300, 480, length=80),
+        "G1": _sym(-70, 90), "G7": _sym(600, 580), "SVC3": _sym(600, 110),
+        "L12": _sym(150, 0), "L23": _sym(420, 0), "L34": _sym(660, 0),
+        "L45": _sym(780, 125, 90), "L56": _sym(780, 360, 90),
+        "L67": _sym(660, 480, 180), "L78": _sym(420, 500, 180),
+        "L28": _sym(300, 240, 90), "L27": _sym(520, 240, 90),
+        "LD4": _sym(900, 60), "LD6": _sym(900, 580), "LD8": _sym(240, 580),
+        "SH5": _sym(720, 340),
+    }
+
+
+def lf_cases() -> list[Case]:
+    """LFa-LFc in one run, LFd, and the constant-B reading of the bus-5 shunt."""
+    return [
+        Case("LFa", "loadflow", "LFa-LFc) Load flow", {}),
+        Case("LFd", "loadflow", "LFd) Load flow with P_LD4 increased by 10 %", {},
+             overrides={"LD4.p_mw": "1.1*value"}),
+        Case("LFb_rated", "loadflow",
+             "LF variant) Shunt at bus 5 as a susceptance rated at 220 kV",
+             {"shunt_model": "constant_b"}),
+    ]
 
 
 def s2_cases(exclude: tuple[str, ...] = ()) -> list[Case]:
@@ -288,4 +378,14 @@ def example_projects(a_number: float = 80.0) -> dict:
                        "disconnected). References (A = 80): S2d U_LDe = 0.9289 < "
                        "-3.2857 pu = 5.5734 kV; S3c I_f = 0.5214 kA; S3e U7 = 21.4825, "
                        "21.4474, 21.4503 kV."})
-    return {"s2_grid.psn": s2, "grid_industry.psn": gi}
+    pv, b = lf_parameter_bindings(a)
+    lf = Project(
+        network=build_lf(a), params=Parameters(project_vars=pv, bindings=b),
+        layout=lf_layout(), cases=lf_cases(),
+        meta={"title": f"EG2100 Assignment LF, A = {a:g}",
+              "notes": "220 kV network for the Newton-Raphson load flow. References "
+                       "(A = 80): P_G1 = 380.1658 MW, Q_G1 = 28.8537 MVAr, Q_sh3 = "
+                       "46.6418 MVAr, Q_G7 = 28.9567 MVAr, P_loss = 22.1658 MW; LFd "
+                       "P_loss = 24.3993 MW; shunt as a susceptance: P_loss = 22.1662 MW. "
+                       "A = 0: P_loss = 26.4240 MW."})
+    return {"s2_grid.psn": s2, "grid_industry.psn": gi, "lf_220kv.psn": lf}
