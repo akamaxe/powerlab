@@ -696,6 +696,8 @@ class LoadItem(ShuntItem):
             return ""
         kw = c.p_mw * 1000.0
         p = f"{kw:g} kW" if abs(kw) < 1000 else f"{c.p_mw:g} MW"
+        if c.spec == "p_q":
+            return f"{p}  {c.q_mvar:g} MVAr"
         return f"{p}  {c.cos_phi:g} {c.pf_sign}"
 
     def paint(self, painter, option, widget=None):
@@ -740,6 +742,68 @@ class ShuntCapItem(ShuntItem):
         painter.setPen(st.pen(p.color(), st.LEAD_PEN))
         for i, w in enumerate((9, 6, 3)):
             painter.drawLine(QPointF(-w, base + i * 3), QPointF(w, base + i * 3))
+
+
+def _capacitor(painter, pen, top: float) -> float:
+    """Two plates from ``top`` down and the lead below them; returns the lead's end."""
+    painter.drawLine(QPointF(-9, top), QPointF(9, top))
+    painter.drawLine(QPointF(-9, top + 5), QPointF(9, top + 5))
+    painter.drawLine(QPointF(0, top + 5), QPointF(0, top + 10))
+    return top + 10
+
+
+def _earth(painter, pen, top: float) -> None:
+    painter.setPen(st.pen(pen.color(), st.LEAD_PEN))
+    for i, w in enumerate((9, 6, 3)):
+        painter.drawLine(QPointF(-w, top + i * 3), QPointF(w, top + i * 3))
+
+
+class SvcItem(ShuntItem):
+    """A capacitor crossed by an arrow (variable), over an earth symbol."""
+
+    def subtitle(self) -> str:
+        c = self.component
+        return "" if c is None else f"U set {c.u_set_pu:g} pu"
+
+    def paint(self, painter, option, widget=None):
+        p = self.current_pen()
+        painter.setPen(p)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        self._lead(painter, 4)
+        base = _capacitor(painter, p, 4)
+        painter.setPen(st.pen(p.color(), st.LEAD_PEN))
+        painter.drawLine(QPointF(-11, 13), QPointF(10, -2))
+        painter.setBrush(p.color())
+        painter.drawPolygon(QPolygonF([QPointF(12, -3.5), QPointF(5, -2), QPointF(9, 3)]))
+        _earth(painter, p, base)
+
+
+class GeneratorItem(ShuntItem):
+    """Synchronous generator: a circle with a G, hanging from its bus."""
+
+    R = 12.0
+
+    def subtitle(self) -> str:
+        c = self.component
+        if c is None:
+            return ""
+        if c.control == "slack":
+            return f"slack  {c.u_set_pu:g} pu < {c.theta_deg:g} deg"
+        if c.control == "pq":
+            return f"{c.p_mw:g} MW  {c.q_mvar:g} MVAr"
+        return f"{c.p_mw:g} MW  {c.u_set_pu:g} pu"
+
+    def paint(self, painter, option, widget=None):
+        p = self.current_pen()
+        painter.setPen(p)
+        self._lead(painter, 4)
+        painter.setBrush(Qt.GlobalColor.white)
+        centre = QPointF(0, 4 + self.R)
+        painter.drawEllipse(centre, self.R, self.R)
+        font = st.label_font(bold=True, size=9)
+        painter.setFont(font)
+        painter.drawText(QRectF(-self.R, 4, 2 * self.R, 2 * self.R),
+                         Qt.AlignmentFlag.AlignCenter, "G")
 
 
 class SourceItem(ComponentItem):

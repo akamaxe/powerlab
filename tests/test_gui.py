@@ -26,7 +26,7 @@ from psa.core.cases import Case                        # noqa: E402
 from psa.core.examples import build_s1, s1_parameter_bindings  # noqa: E402
 from psa.core.params import Parameters                 # noqa: E402
 from psa.core.serialize import Project                 # noqa: E402
-from psa.gui.commands import SetField, delete_objects  # noqa: E402
+from psa.gui.commands import SetField, SetNetworkSettings, delete_objects  # noqa: E402
 from psa.gui.document import NetworkDocument, blank_document  # noqa: E402
 from psa.gui.items import BusItem, LoadItem, TransformerItem  # noqa: E402
 from psa.gui.scene import SchematicScene             # noqa: E402
@@ -1147,6 +1147,60 @@ class SequenceStudiesInTheWindow(unittest.TestCase):
         case = dialog.case()
         self.assertEqual(case.options["factor_a"], 0.5)
         dialog.deleteLater()
+
+
+class LoadFlowInTheWindow(unittest.TestCase):
+    LF = ROOT / "examples" / "lf_220kv.psn"
+
+    def test_all_lf_cases_run_and_annotate_the_diagram(self):
+        from psa.gui.mainwindow import MainWindow
+
+        doc = NetworkDocument.open(self.LF, as_copy=True)
+        win = MainWindow(doc)
+        with unittest.mock.patch.object(win, "_error") as error:
+            win.run_all_studies()
+        self.assertFalse(error.called)
+        titles = [win.results.tabText(i) for i in range(win.results.count() - 1)]
+        self.assertEqual([t.split(")")[0] for t in titles], ["LFa-LFc", "LFd", "LF variant"])
+        warnings = [w for i in range(len(titles)) for w in win.results.result_at(i).warnings]
+        self.assertEqual(warnings, [])
+        win.results.setCurrentIndex(0)
+        badges = {b.target: b.lines for b in win.scene._overlay}
+        self.assertEqual(badges["b2"][0], "0.9832 pu < -13.39\N{DEGREE SIGN}  PQ")
+        self.assertEqual(list(badges["G1"]), ["P 380.17 MW", "Q 28.85 MVAr"])
+        self.assertEqual(badges["SVC3"][1], "B 0.4664 pu")
+        self.assertIn("loss 8.804 MW", badges["L12"])
+        win.close()
+
+    def test_case_dialog_keeps_the_shunt_model_of_the_variant(self):
+        from psa.core.study import STUDY_REGISTRY
+        from psa.gui.dialogs import CaseDialog
+
+        doc = NetworkDocument.open(self.LF, as_copy=True)
+        dialog = CaseDialog(doc, STUDY_REGISTRY["loadflow"], doc.case("LFb_rated"))
+        self.assertEqual(dialog.widgets["shunt_model"].currentData(), "constant_b")
+        self.assertEqual(dialog.case().options["shunt_model"], "constant_b")
+        dialog.deleteLater()
+
+    def test_a_network_drawn_from_the_palette_solves(self):
+        from psa.core.study import run_case
+
+        doc = blank_document()
+        scene = SchematicScene(doc)
+        a = scene.place_component("bus", QPointF(0, 0))
+        b = scene.place_component("bus", QPointF(180, 0))
+        scene.place_component("line", QPointF(90, 0))
+        gen = scene.place_component("generator", QPointF(0, 70))
+        svc = scene.place_component("svc", QPointF(180, 70))
+        self.assertEqual((gen, svc), ("G1", "SVC1"))
+        self.assertEqual(doc.network.get(gen).bus, a)
+        self.assertEqual(doc.network.get(svc).bus, b)
+        self.assertEqual(doc.network.get(gen).control, "pv")
+        doc.undo.push(SetField(doc, gen, "control", "slack"))
+        doc.undo.push(SetNetworkSettings(doc, 100.0, 50.0, a, 220.0))
+        res = run_case(doc.network, Case("lf", "loadflow"))
+        self.assertEqual(res.info["converged"], "yes")
+        self.assertEqual(res.info[f"type:{b}"], "PU")
 
 
 if __name__ == "__main__":

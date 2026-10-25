@@ -12,18 +12,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QPainter, QPainterPath, QPolygonF
 
 from . import style as st
 from .items import (
     BusItem,
     ComponentItem,
+    GeneratorItem,
     ImpedanceItem,
     LineItem,
     LoadItem,
     ShuntCapItem,
     SourceItem,
+    SvcItem,
     TransformerItem,
 )
 
@@ -92,6 +94,21 @@ def _icon_source(p: QPainter) -> None:
     p.drawPath(path)
 
 
+def _icon_generator(p: QPainter) -> None:
+    p.drawLine(QPointF(0, -32), QPointF(0, -14))
+    p.drawEllipse(QPointF(0, 4), 18, 18)
+    font = st.label_font(bold=True, size=14)
+    p.setFont(font)
+    p.drawText(QRectF(-18, -14, 36, 36), Qt.AlignmentFlag.AlignCenter, "G")
+
+
+def _icon_svc(p: QPainter) -> None:
+    _icon_shunt(p)
+    p.drawLine(QPointF(-18, 10), QPointF(14, -14))
+    p.setBrush(st.INK)
+    p.drawPolygon(QPolygonF([QPointF(18, -17), QPointF(8, -14), QPointF(14, -6)]))
+
+
 def _icon_impedance(p: QPainter) -> None:
     p.setBrush(Qt.GlobalColor.white)
     p.drawRect(-16, -9, 32, 18)
@@ -125,6 +142,14 @@ def _defaults_source(obj) -> None:
     obj.u_pu, obj.theta_deg = 1.0, 0.0
 
 
+def _defaults_generator(obj) -> None:
+    obj.control, obj.p_mw, obj.u_set_pu = "pv", 100.0, 1.0
+
+
+def _defaults_svc(obj) -> None:
+    obj.u_set_pu = 1.0
+
+
 def _defaults_impedance(obj) -> None:
     obj.r, obj.x = 0.0, 1.0
 
@@ -136,14 +161,24 @@ ELEMENT_UI: dict[str, ElementUI] = {e.type: e for e in (
               "Voltage source behind a Thevenin impedance, given in ohm or by its "
               "fault level (Ik or Sk).",
               "SRC", SourceItem, _defaults_source, _icon_source),
+    ElementUI("generator", "Generator",
+              "Synchronous generator for the load flow: PV (P and U held), slack "
+              "(U and angle held) or PQ.",
+              "G", GeneratorItem, _defaults_generator, _icon_generator),
     ElementUI("transformer", "Transformer", "Two-winding, series reactance.",
               "T", TransformerItem, _defaults_transformer, _icon_transformer),
     ElementUI("line", "Line / Cable", "PI model, n identical lines in parallel.",
               "LI", LineItem, _defaults_line, _icon_line),
-    ElementUI("load", "Load", "Power drawn at a nominal voltage (constant impedance).",
+    ElementUI("load", "Load",
+              "Power drawn at a nominal voltage: constant impedance, or constant power "
+              "in the load flow.",
               "LD", LoadItem, _defaults_load, _icon_load),
     ElementUI("shunt", "Shunt", "Capacitor (Q > 0) or reactor (Q < 0).",
               "SH", ShuntCapItem, _defaults_shunt, _icon_shunt),
+    ElementUI("svc", "SVC",
+              "Voltage-controlled shunt (SVC, synchronous condenser): holds its bus "
+              "voltage in the load flow with whatever Q it takes.",
+              "SVC", SvcItem, _defaults_svc, _icon_svc),
     ElementUI("impedance", "Impedance", "Raw R + jX, series or to ground.",
               "Z", ImpedanceItem, _defaults_impedance, _icon_impedance),
 )}

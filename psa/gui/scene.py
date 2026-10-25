@@ -645,7 +645,9 @@ class SchematicScene(QGraphicsScene):
         w, h = badge.size()
         anchor = item.scenePos()
         if badge.slot == "bus":
-            half = getattr(item, "length", 0.0) / 2.0
+            # Above the bus name: past the bar's end when it stands vertical.
+            vertical = getattr(item, "orientation", "V") == "V"
+            half = getattr(item, "length", 0.0) / 2.0 if vertical else 0.0
             badge.setPos(anchor.x() - w / 2.0, anchor.y() - half - 26 - h)
         elif badge.slot == "branch" and round(item.rotation()) % 180 == 90:
             # A vertical branch: beside it, clear of the buses above and below.
