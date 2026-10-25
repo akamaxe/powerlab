@@ -17,8 +17,10 @@ Newton-Raphson load flow, with the results formatted the way the course requires
 | **S3** — sequence networks, single line-to-ground fault | Complete: cases S3a-S3e in `examples/grid_industry.psn` (S3a-S3c also in `examples/s2_grid.psn`), validated against the MATLAB reference solution (A = 80 and A = 0) |
 | **LF** — load flow | Complete: cases LFa-LFd and the constant-B reading of the bus-5 shunt in `examples/lf_220kv.psn`, validated against the MATLAB reference solution (A = 80 and A = 0) and against pandapower |
 
-The plan for v1 (all four assignments, a PowerFactory-grade editor) is in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+This is **PowerLab 1.0**: all four assignments, solved in an interactive editor. The plan that
+built it, phase by phase, and what is left for later are in [`docs/ROADMAP.md`](docs/ROADMAP.md);
+[Solving the EG2100 assignments with PowerLab](#solving-the-eg2100-assignments-with-powerlab)
+shows where each task's answer is.
 
 ## Installation and startup
 

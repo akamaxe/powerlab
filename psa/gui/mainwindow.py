@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..core.cases import Case, unique_case_id
 from ..core.components import display_name
 from ..core.errors import PsaError
@@ -1108,15 +1109,15 @@ class MainWindow(QMainWindow):
     def about(self) -> None:
         QMessageBox.about(
             self, "About PowerLab",
-            "<b>PowerLab</b><br>"
-            "Interactive single-line diagram editor and analysis tool for "
-            "KTH EG2100 Power System Analysis.<br><br>"
-            "Draw buses, transformers, PI lines, loads and sources, then "
-            "compute two-port (ABCD) matrices, equivalent impedances and bus "
-            "voltages in per unit.<br><br>"
-            "Every two-port result is computed twice, by cascading the element "
-            "matrices and by reducing the Y-bus, and the two are cross-checked "
-            "against each other.")
+            f"<b>PowerLab {__version__}</b><br>"
+            "Interactive single-line diagram editor and power system analysis "
+            "tool, started from KTH EG2100 Power System Analysis.<br><br>"
+            "Two-port matrices, equivalent impedances, sequence admittance "
+            "matrices, Thevenin equivalents, short circuits of every type, "
+            "unbalanced loads and the Newton-Raphson load flow, in per unit, "
+            "with study cases, parametric fields and exports.<br><br>"
+            "Every study cross-checks itself by a second method, and the "
+            "example projects reproduce the course's reference solutions.")
 
     # -- window state --------------------------------------------------- #
 
