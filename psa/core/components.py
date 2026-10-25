@@ -60,6 +60,11 @@ class Terminal:
     optional: bool = False       # may stay empty, e.g. an impedance to ground
 
 
+#: Transformer vector groups, HV winding first.
+VECTOR_GROUPS = ("YNyn", "YNy", "Yyn", "Yy", "YNd", "Yd", "Dyn", "Dy", "Dd")
+#: Load and shunt connections.
+CONNECTIONS = ("Y0", "Y", "D")
+
 _COMMON = (
     FieldSpec("name", "Name", "str", tooltip="Label shown on the diagram",
               parametric=False),
@@ -126,6 +131,11 @@ class ExternalGrid:
     cos_phi: float = 0.1                 # of the fault current, lagging
     un_kv: float | None = None           # None => the bus base voltage
     is_slack: bool = True
+    z0_mode: str = "none"                # none | z0_ohm | ik1 | z0_z1
+    z0_ohm: complex = 0j                 # z0_mode "z0_ohm"
+    ik1_ka: float = 0.0                  # z0_mode "ik1": single line-to-ground fault
+    cos_phi0: float = 0.1                # of that fault current, lagging
+    z0_z1: float = 1.0                   # z0_mode "z0_z1"
 
     TYPE: ClassVar[str] = "source"
     TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
@@ -156,6 +166,18 @@ class ExternalGrid:
                           "bus base."),
         FieldSpec("is_slack", "Slack", "bool", parametric=False,
                   tooltip="Fixes the voltage angle reference for the network"),
+        FieldSpec("z0_mode", "Z0 from", "choice", choices=("none", "z0_ohm", "ik1", "z0_z1"),
+                  parametric=False, group="Zero sequence",
+                  tooltip="none: no zero-sequence path (ungrounded). z0_ohm: give Z0. "
+                          "ik1: single line-to-ground fault current. z0_z1: Z0/Z1."),
+        FieldSpec("z0_ohm", "Z0", "complex", "ohm", group="Zero sequence",
+                  visible_if=("z0_mode", ("z0_ohm",))),
+        FieldSpec("ik1_ka", "Ik1 (line-to-ground)", "float", "kA", minimum=0.0,
+                  group="Zero sequence", visible_if=("z0_mode", ("ik1",))),
+        FieldSpec("cos_phi0", "cos phi of that fault", "float", "", minimum=0.0,
+                  maximum=1.0, group="Zero sequence", visible_if=("z0_mode", ("ik1",))),
+        FieldSpec("z0_z1", "Z0 / Z1", "float", "", minimum=0.0, group="Zero sequence",
+                  visible_if=("z0_mode", ("z0_z1",))),
     )
 
     @property
@@ -180,6 +202,31 @@ class ExternalGrid:
         if not 0.0 <= self.cos_phi <= 1.0:
             raise ValueError("cos phi must be between 0 and 1")
         return cmath.rect(mag, math.acos(self.cos_phi))
+
+    def impedance0_ohm(self, u_base_kv: float) -> complex | None:
+        """The zero-sequence impedance in ohm, or ``None`` for an open circuit.
+
+        From a single line-to-ground fault current ``Ik1`` at the bus, with
+        ``Z2 = Z1``: ``Ik1 = 3 U_ph / (Z1 + Z2 + Z0)``, so
+        ``Z0 = 3 U_ph / Ik1 - 2 Z1`` with ``U_ph = U / sqrt(3)``.
+        """
+        if self.z0_mode == "none":
+            return None
+        if self.z0_mode == "z0_ohm":
+            return complex(self.z0_ohm)
+        z1 = self.impedance_ohm(u_base_kv)
+        if self.z0_mode == "z0_z1":
+            return self.z0_z1 * z1
+        if self.z0_mode == "ik1":
+            if self.ik1_ka <= 0:
+                raise ValueError("the line-to-ground fault current must be positive")
+            if not 0.0 <= self.cos_phi0 <= 1.0:
+                raise ValueError("cos phi of the line-to-ground fault must be between 0 and 1")
+            u_kv = self.u_pu * (self.un_kv or u_base_kv)
+            z_fault = cmath.rect(3.0 * u_kv / (math.sqrt(3.0) * self.ik1_ka),
+                                 math.acos(self.cos_phi0))
+            return z_fault - 2.0 * z1
+        raise ValueError(f"unknown zero-sequence mode '{self.z0_mode}'")
 
 
 #: The name the class had before it grew the fault-level modes.
@@ -206,6 +253,11 @@ class Transformer:
     r_pct: float = 0.0
     tap: float = 1.0                     # off-nominal ratio, reserved for LF
     referred_side: str = "lv"            # lv | hv
+    vector_group: str = "YNyn"           # see VECTOR_GROUPS
+    zn_hv_ohm: complex = 0j              # neutral to earth, HV star point
+    zn_lv_ohm: complex = 0j              # neutral to earth, LV star point
+    x0_pct: float | None = None          # None => as the positive sequence
+    r0_pct: float | None = None
 
     TYPE: ClassVar[str] = "transformer"
     TERMINALS: ClassVar[tuple[Terminal, ...]] = (
@@ -225,7 +277,29 @@ class Transformer:
                   parametric=False,
                   tooltip="Which side's rated voltage and base are used for the "
                           "per-unit conversion"),
+        FieldSpec("vector_group", "Vector group", "choice", choices=VECTOR_GROUPS,
+                  parametric=False, group="Zero sequence",
+                  tooltip="HV winding first: YN grounded star, Y star, D delta. "
+                          "Decides the zero-sequence path; phase shifts are not "
+                          "modelled."),
+        FieldSpec("zn_hv_ohm", "Zn HV", "complex", "ohm", group="Zero sequence",
+                  tooltip="Neutral-to-earth impedance of a grounded HV star (0 = solid)"),
+        FieldSpec("zn_lv_ohm", "Zn LV", "complex", "ohm", group="Zero sequence",
+                  tooltip="Neutral-to-earth impedance of a grounded LV star (0 = solid)"),
+        FieldSpec("x0_pct", "x0", "float", "%", group="Zero sequence",
+                  tooltip="Empty means the same as x"),
+        FieldSpec("r0_pct", "r0", "float", "%", group="Zero sequence",
+                  tooltip="Empty means the same as r"),
     )
+
+    @property
+    def winding_codes(self) -> tuple[str, str]:
+        """``("YN" | "Y" | "D", "yn" | "y" | "d")`` from the vector group."""
+        group = self.vector_group
+        for hv in ("YN", "Y", "D"):
+            if group.startswith(hv) and group[len(hv):] in ("yn", "y", "d"):
+                return hv, group[len(hv):]
+        raise ValueError(f"unknown vector group '{group}'")
 
     @property
     def ratio_hv_to_lv(self) -> float:
@@ -247,6 +321,13 @@ class Line:
     g_s_per_km: float = 0.0
     length_km: float = 1.0
     n_parallel: int = 1
+    z0_mode: str = "unset"               # unset | factors | absolute
+    r0_factor: float = 3.0               # z0_mode "factors": r0 = factor * r
+    x0_factor: float = 3.0
+    b0_factor: float = 0.5
+    r0_ohm_per_km: float = 0.0           # z0_mode "absolute"
+    x0_ohm_per_km: float = 0.0
+    b0_s_per_km: float = 0.0
 
     TYPE: ClassVar[str] = "line"
     TERMINALS: ClassVar[tuple[Terminal, ...]] = (
@@ -262,6 +343,22 @@ class Line:
         FieldSpec("g_s_per_km", "g", "float", "S/km"),
         FieldSpec("length_km", "Length", "float", "km", minimum=0.0),
         FieldSpec("n_parallel", "Parallel lines", "int", "", minimum=1),
+        FieldSpec("z0_mode", "Z0 data", "choice", choices=("unset", "factors", "absolute"),
+                  parametric=False, group="Zero sequence",
+                  tooltip="unset: zero-sequence studies refuse to run. factors: "
+                          "multiples of r, x, b. absolute: per-km values."),
+        FieldSpec("r0_factor", "r0 / r", "float", "", minimum=0.0, group="Zero sequence",
+                  visible_if=("z0_mode", ("factors",))),
+        FieldSpec("x0_factor", "x0 / x", "float", "", minimum=0.0, group="Zero sequence",
+                  visible_if=("z0_mode", ("factors",))),
+        FieldSpec("b0_factor", "b0 / b", "float", "", minimum=0.0, group="Zero sequence",
+                  visible_if=("z0_mode", ("factors",))),
+        FieldSpec("r0_ohm_per_km", "r0", "float", "ohm/km", minimum=0.0, group="Zero sequence",
+                  visible_if=("z0_mode", ("absolute",))),
+        FieldSpec("x0_ohm_per_km", "x0", "float", "ohm/km", group="Zero sequence",
+                  visible_if=("z0_mode", ("absolute",))),
+        FieldSpec("b0_s_per_km", "b0", "float", "S/km", group="Zero sequence",
+                  visible_if=("z0_mode", ("absolute",))),
     )
 
 
@@ -278,6 +375,8 @@ class Load:
     pf_sign: str = "lag"                 # lag gives +jQ (inductive), lead gives -jQ
     u_nominal_kv: float | None = None    # None => use the bus base
     model: str = "constant_impedance"    # constant_power reserved for LF
+    connection: str = "Y0"               # Y0 grounded star | Y star | D delta
+    zn_ohm: complex = 0j                 # neutral to earth of a Y0 load
 
     TYPE: ClassVar[str] = "load"
     TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
@@ -294,6 +393,12 @@ class Load:
                   choices=("constant_impedance", "constant_power"),
                   parametric=False,
                   tooltip="Only constant_impedance is used by the S1 studies"),
+        FieldSpec("connection", "Connection", "choice", choices=CONNECTIONS,
+                  parametric=False, group="Zero sequence",
+                  tooltip="Y0: grounded star (a zero-sequence path). Y and D: none."),
+        FieldSpec("zn_ohm", "Zn", "complex", "ohm", group="Zero sequence",
+                  visible_if=("connection", ("Y0",)),
+                  tooltip="Neutral-to-earth impedance (0 = solidly grounded)"),
     )
 
 
@@ -307,6 +412,7 @@ class Shunt:
     in_service: bool = True
     q_mvar: float = 0.0
     u_nominal_kv: float | None = None
+    connection: str = "Y0"               # Y0 grounded star | Y star | D delta
 
     TYPE: ClassVar[str] = "shunt"
     TERMINALS: ClassVar[tuple[Terminal, ...]] = (Terminal("bus"),)
@@ -317,6 +423,9 @@ class Shunt:
                   tooltip="Positive is capacitive, the same sign as line charging. "
                           "Use a negative value for a reactor."),
         FieldSpec("u_nominal_kv", "U nominal", "float", "kV", minimum=0.0),
+        FieldSpec("connection", "Connection", "choice", choices=CONNECTIONS,
+                  parametric=False, group="Zero sequence",
+                  tooltip="Y0: grounded star (a zero-sequence path). Y and D: none."),
     )
 
 

@@ -235,9 +235,11 @@ class Robustness(unittest.TestCase):
         sm = model.seq(Seq.POS)
         self.assertNotIn("LDX", [s.comp_id for s in sm.shunts])
 
-    def test_only_the_positive_sequence_exists_yet(self):
-        with self.assertRaises(ValidationError):
+    def test_the_zero_sequence_needs_line_data(self):
+        with self.assertRaises(ValidationError) as ctx:
             build_model(build_s1(80.0)).seq(Seq.ZERO)
+        self.assertIn("zero-sequence data", str(ctx.exception))
+        build_model(build_s1(80.0)).seq(Seq.NEG)        # the negative one is fine
 
     def test_a_transformer_carries_the_base_both_ways(self):
         net = build_s1(80.0)
