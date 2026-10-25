@@ -47,6 +47,8 @@ class SchematicScene(QGraphicsScene):
         super().__init__(parent if parent is not None else document)
         self.document = document
         self.grid = st.GRID
+        #: Paint plain white, without the grid (diagram export).
+        self.print_mode = False
         self.setSceneRect(SCENE_RECT)          # explicit: an auto rect jitters
         self.setBackgroundBrush(st.SHEET)
 
@@ -281,6 +283,9 @@ class SchematicScene(QGraphicsScene):
     # ------------------------------------------------------------------ #
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
+        if self.print_mode:
+            painter.fillRect(rect, Qt.GlobalColor.white)
+            return
         painter.fillRect(rect, st.SHEET)
         scale = 1.0
         views = self.views()

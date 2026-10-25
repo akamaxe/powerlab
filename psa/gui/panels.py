@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from ..core.components import TYPE_REGISTRY, FieldSpec, field_specs
 from ..core.errors import ExpressionError
+from ..core.export import matlab_literal
 from ..core.params import safe_eval
 from . import style as st
 from .commands import Connect, SetBinding, SetField, SetParameters
@@ -850,6 +851,10 @@ class ResultsPanel(QTabWidget):
         self.setCurrentIndex(0)
         self.blockSignals(False)
 
+    def all_results(self) -> list:
+        """The results of the last run, in tab order."""
+        return list(self._results)
+
     def result_at(self, index: int):
         return self._results[index] if 0 <= index < len(self._results) else None
 
@@ -883,14 +888,16 @@ class ResultsPanel(QTabWidget):
             layout.addWidget(banner)
 
         for table in res.tables:
-            layout.addWidget(_table_block(table))
+            layout.addWidget(_table_block(table, res.matrices.get(table.source)
+                                          if table.source else None, table.source))
 
         layout.addStretch(1)
         page.setWidget(body)
         return page
 
 
-def _table_block(table) -> QWidget:
+def _table_block(table, matrix=None, name: str = "") -> QWidget:
+    """A titled result table; ``matrix`` (a LabeledMatrix) adds *Copy as MATLAB*."""
     box = QFrame()
     box.setFrameShape(QFrame.Shape.NoFrame)
     layout = QVBoxLayout(box)
@@ -903,6 +910,7 @@ def _table_block(table) -> QWidget:
 
     cols = max([len(table.headers)] + [len(r) for r in table.rows] or [1])
     widget = _CopyTable(len(table.rows), max(1, cols))
+    widget.matrix, widget.matrix_name = matrix, name
     if table.headers:
         widget.setHorizontalHeaderLabels(
             table.headers + [""] * (cols - len(table.headers)))
@@ -941,7 +949,14 @@ def _table_block(table) -> QWidget:
 
 
 class _CopyTable(QTableWidget):
-    """A read-only result table whose cells copy as tab-separated text."""
+    """A read-only result table whose cells copy as tab-separated text.
+
+    A table that prints a matrix also copies it as a MATLAB literal with every
+    digit, which the formatted cells (``format short``) no longer hold.
+    """
+
+    matrix = None
+    matrix_name = ""
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.StandardKey.Copy):
@@ -953,7 +968,14 @@ class _CopyTable(QTableWidget):
         menu = QMenu(self)
         menu.addAction("Copy", self.copy_selection)
         menu.addAction("Copy table", self.copy_all)
+        if self.matrix is not None:
+            menu.addAction("Copy as MATLAB", self.copy_matlab)
         menu.exec(event.globalPos())
+
+    def copy_matlab(self) -> None:
+        if self.matrix is not None:
+            QGuiApplication.clipboard().setText(
+                matlab_literal(self.matrix.data, self.matrix_name))
 
     def copy_selection(self) -> None:
         cells = self.selectedIndexes()

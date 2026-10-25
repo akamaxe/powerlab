@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from ..core.cases import Case, unique_case_id
 from ..core.errors import PsaError
 from ..core.examples import build_s1, s1_parameter_bindings
+from ..core.export import FORMATS, export_results
 from ..core.params import Parameters
 from ..core.results import Result
 from ..core.serialize import Project
@@ -31,6 +32,7 @@ from . import style as st
 from .commands import SetCases, SetNetworkSettings, delete_objects
 from .dialogs import BaseSettingsDialog, CaseDialog
 from .document import NetworkDocument, blank_document
+from .export import DIAGRAM_FORMATS, export_diagram
 from .panels import (
     CasesPanel,
     PaletteList,
@@ -41,6 +43,8 @@ from .panels import (
 from .scene import SchematicScene, SchematicView
 
 FILE_FILTER = "PowerLab project (*.psn);;All files (*)"
+RESULTS_FILTER = "Text (*.txt);;CSV (*.csv);;LaTeX table (*.tex);;JSON (*.json)"
+DIAGRAM_FILTER = "PNG image (*.png);;SVG drawing (*.svg);;PDF document (*.pdf)"
 ORG, APP = "PowerLab", "PowerLab"
 
 
@@ -176,6 +180,12 @@ class MainWindow(QMainWindow):
         self.act_example = self._act(
             "Load Assignment S1 example", self.load_example,
             tip="The EG2100 S1 network with A = 80, already validated")
+        self.act_export_results = self._act(
+            "Export &results...", self.export_results, "Ctrl+E",
+            tip="Write the results of the last run as text, CSV, LaTeX or JSON")
+        self.act_export_diagram = self._act(
+            "Export &diagram...", self.export_diagram, "Ctrl+Shift+E",
+            tip="Save the diagram, with the annotations shown, as PNG, SVG or PDF")
         self.act_quit = self._act("E&xit", self.close, "Ctrl+Q")
 
         self.act_undo = d.undo.createUndoAction(self, "&Undo")
@@ -236,6 +246,9 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_example)
         m.addSeparator()
         for a in (self.act_save, self.act_save_as):
+            m.addAction(a)
+        m.addSeparator()
+        for a in (self.act_export_results, self.act_export_diagram):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_quit)
@@ -415,6 +428,49 @@ class MainWindow(QMainWindow):
         self._remember_recent(path)
         self.status.showMessage(f"Saved {Path(path).name}", 4000)
         self._update_title()
+        return True
+
+    # -- export ---------------------------------------------------------- #
+
+    def _ask_export_path(self, title: str, filters: str, formats: dict, default: str) -> str:
+        path, chosen = QFileDialog.getSaveFileName(
+            self, title, str(self._start_dir() / default), filters)
+        if not path:
+            return ""
+        if Path(path).suffix.lower() not in formats:
+            ext = chosen.rsplit("*", 1)[-1].rstrip(")") if "*" in chosen else ""
+            path += ext if ext in formats else next(iter(formats))
+        return path
+
+    def export_results(self) -> bool:
+        results = self.results.all_results()
+        if not results:
+            self.status.showMessage("Nothing to export: run the studies first (F5).", 5000)
+            return False
+        stem = Path(self.document.path).stem if self.document.path else "results"
+        path = self._ask_export_path("Export results", RESULTS_FILTER, FORMATS, f"{stem}.txt")
+        if not path:
+            return False
+        try:
+            export_results(results, path)
+        except Exception as exc:  # noqa: BLE001
+            self._error("Could not export the results", exc)
+            return False
+        self.status.showMessage(f"Exported {len(results)} result(s) to {Path(path).name}", 4000)
+        return True
+
+    def export_diagram(self) -> bool:
+        stem = Path(self.document.path).stem if self.document.path else "diagram"
+        path = self._ask_export_path("Export diagram", DIAGRAM_FILTER, DIAGRAM_FORMATS,
+                                     f"{stem}.png")
+        if not path:
+            return False
+        try:
+            export_diagram(self.scene, path)
+        except Exception as exc:  # noqa: BLE001
+            self._error("Could not export the diagram", exc)
+            return False
+        self.status.showMessage(f"Exported the diagram to {Path(path).name}", 4000)
         return True
 
     # -- recent files --------------------------------------------------- #

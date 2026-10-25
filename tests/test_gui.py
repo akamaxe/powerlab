@@ -1203,6 +1203,63 @@ class LoadFlowInTheWindow(unittest.TestCase):
         self.assertEqual(res.info[f"type:{b}"], "PU")
 
 
+class ExportFromTheWindow(unittest.TestCase):
+    LF = ROOT / "examples" / "lf_220kv.psn"
+
+    def setUp(self):
+        from psa.gui.mainwindow import MainWindow
+
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.win = MainWindow(NetworkDocument.open(self.LF, as_copy=True))
+        self.addCleanup(self.win.close)
+
+    def _save_as(self, name: str, chosen: str = ""):
+        return unittest.mock.patch(
+            "psa.gui.mainwindow.QFileDialog.getSaveFileName",
+            return_value=(str(self.tmp / name), chosen))
+
+    def test_diagram_exports_to_png_svg_and_pdf(self):
+        from PySide6.QtGui import QImage
+
+        self.win.run_all_studies()
+        bus = self.win.scene._items["b2"]
+        bus.setSelected(True)
+        for name in ("lf.png", "lf.svg", "lf.pdf"):
+            with self._save_as(name):
+                self.assertTrue(self.win.export_diagram())
+        self.assertGreater(QImage(str(self.tmp / "lf.png")).width(), 1000)
+        self.assertIn("<svg", (self.tmp / "lf.svg").read_text(encoding="utf-8"))
+        self.assertTrue((self.tmp / "lf.pdf").read_bytes().startswith(b"%PDF"))
+        self.assertFalse(self.win.scene.print_mode)
+        self.assertTrue(bus.isSelected(), "the selection comes back after the export")
+
+    def test_results_export_adds_the_extension_of_the_chosen_filter(self):
+        import json
+
+        self.win.run_all_studies()
+        with self._save_as("lf_results", "JSON (*.json)"):
+            self.assertTrue(self.win.export_results())
+        data = json.loads((self.tmp / "lf_results.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(data["results"]), 3)
+
+    def test_nothing_to_export_before_a_run(self):
+        with self._save_as("nothing.txt") as dialog:
+            self.assertFalse(self.win.export_results())
+        dialog.assert_not_called()
+
+    def test_matrix_tables_copy_as_matlab(self):
+        from psa.gui.panels import _CopyTable
+
+        self.win.run_all_studies()
+        tables = [t for t in self.win.results.widget(0).findChildren(_CopyTable)
+                  if t.matrix is not None]
+        self.assertEqual([t.matrix_name for t in tables], ["J0"])
+        tables[0].copy_matlab()
+        text = QApplication.clipboard().text()
+        self.assertTrue(text.startswith("J0 = [") and text.endswith("];"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
